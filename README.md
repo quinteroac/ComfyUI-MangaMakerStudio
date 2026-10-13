@@ -1,0 +1,126 @@
+# Manga Maker Studio
+
+**Version:** 0.1.0-alpha.
+
+Manga Maker Studio extends ComfyUI with a workspace for creating manga, from character and environment references to generated panels, page layouts and final refinements. Organize assets in projects, generate and edit images with Krea2 or Qwen, draw with Klecks, and compose pages with custom panel shapes, dialogue and thought bubbles. Open it from the **Manga Maker Studio** sidebar entry or the **Manga Maker** menu while keeping your existing ComfyUI graph intact.
+
+## Getting started
+
+The package lives in `custom_nodes/ComfyUI-MangaMakerStudio`. When there are no active jobs, restart ComfyUI and reload the browser. No additional dependencies need to be installed: it uses aiohttp and Pillow included with ComfyUI, and Klecks is bundled as a compiled build. It does not modify ComfyUI core. Weights are downloaded from Hugging Face only when you click **Download missing official weights**; opening the Studio or checking models does not initiate external connections.
+
+1. Create a project from **Projects**.
+2. For each operation, select the model, encoder, loading type and VAE in **Models and advanced settings**. Options come from installed nodes and paths registered with ComfyUI. **Refresh lists** lets you select resources again after moving them.
+3. Import or generate references and panels. **Refinement** supports references, panels and pages through **Original image** or **Refine** in the image menu. It preserves the original and saves each version in the same category. **Delete** sends an image to **Trash**, where **Restore** lets you recover it.
+4. In **Page layout**, add panels or import PanelComposer presets. Drag panel images into the layout or use **Place**. Export the composition to `pages/`.
+5. **Finishing** supports Qwen editing or redesign. Analysis instructions are bundled with the plugin; no external workflow files are required. Their text reproduces nodes 533 and 452 from the reference workflow, for refinement that preserves the composition and for redesign, respectively. Each mode stores its changes separately; **Restore default instruction** restores the bundled text. **Generate Text** produces an instruction you can review; it does not start finishing automatically. Qwen receives the reviewed prompt without additional prefixes.
+
+**Krea2 · edit** is an **Engine** option in both **References** and **Panels**, based on `krea-2-edit-workflow-final.json`. Select this engine and connect a reference, or use **Edit with Krea2** in an image menu. Models inherit the engine's global configuration; prompts, references, additional LoRAs and individual overrides remain independent between these workspaces. One image is required and a second is optional: scene/original first, subject second. The original is preserved and the result is saved in the active workspace's category; if the source belongs to that category, a new version is created. The prompt uses the same sections and free field. The official configuration uses Turbo with native encoding, 8 steps, CFG 1, Euler, Simple and denoise 1, plus Identity Edit v1.2 at strength 1. Individual settings and presets can override these values. LoRAs for this operation affect only the model, in list order. Identity Edit is applied once before additional LoRAs; if it is also enabled in the individual list, its specified strength is used without applying it twice. The example's two-step Turbo LoRA is neither downloaded nor added. **Conditioning path** lets you switch to Qwen-VL 8B + bridge. Advanced controls include fidelity for both references, `fit`, grounding and its system prompt.
+
+Under **Connected visual references → Initial latent image**, Krea2 Edit lets you select one connected image as the initial latent in both References and Panels. **Sampling → Denoise** appears when an image is selected: lower values preserve more of that image. **None · empty latent** keeps the empty latent and denoise 1. Selection is tracked by asset ID when references are reordered and cleared if that reference is removed. Inherited size follows the selected image; manual AR/MP resizes and crops only the initial target, preserving the conditioning sources. Scene and subject keep their order. This option works with native or bridge encoding and is stored in operation presets.
+
+Open image actions with a right-click or the **⋯** button. The menu supports arrow keys, Enter and Escape. Icon controls have tooltips and accessible labels. Aspect ratios are selected with buttons that visually represent each format.
+
+The six bundled **References** presets (Character, Expressions, Poses, Clothing, Objects and Environments) and five **Refinement** presets (General, Background, Hands, Face and Color → Manga) fill **TASK** and the relevant prompt sections. Sections not changed by a preset keep their content. For references, **Style** preserves an existing style and suggests a neutral full-color illustration only when empty; the free field is cleared to avoid conflicting old instructions. Empty sections are omitted from the final prompt. Reference presets use `TEXT_TO_IMAGE`, or `IMAGE_EDIT` with Krea2 Edit; refinement presets use `IMAGE_EDIT`. They do not specify models, encoders, VAEs, sampling or LoRAs, so these inherit the engine's global configuration.
+
+**Draw reference** and **Draw panel**, in each gallery header, open a new canvas with a name, AR and MP. The **Draw with Klecks** context menu action opens an existing image to draw over it. [Klecks](https://github.com/bitbof/klecks) runs in a local iframe with brushes, a stabilizer, layers, selection, shapes, text and filters. **Save to project** or **Submit** saves a PNG usable for inference and a PSD with editable layers. Each subsequent save creates a new version; originals are preserved. Reopening a drawing loads its PSD; an imported or generated image opens as an Original layer plus a transparent Drawing layer. Closing asks for confirmation before discarding drawing changes made since the last save.
+
+The embed is bundled in `drawing/klecks/`, outside ComfyUI's JavaScript extension directory, and loads only when the drawing editor is opened. Drawing needs no CDN, account, separate server or external connection. Its MIT license, dependency and font credits, and upstream revision are included with the assets. The build uses TypeScript and Parcel; `ag-psd`, `buffer`, `polygon-clipping` and `transformation-matrix` are compiled into the bundle. Node/npm are development tools for rebuilding Klecks, not requirements for using the plugin. The integration uses the embed's public `openProject`, `readPSD`, `getPNG`, `getPSD` and `onSubmit` APIs.
+
+In **Page layout**, **Add speech bubble** and **Add thought bubble** add text over panels. **Bubble style** offers oval speech, thought cloud, rectangular box, rounded box and exclamation styles. Bubbles can be moved and resized with the mouse, duplicated, deleted, and included in undo/redo. The right panel lets you edit text, font, size, colors, layer and tail; **Show border** hides or shows the border without losing its width. **Fill opacity · %** adjusts background and tail transparency without fading the text or border; at 0% with the border disabled, only text remains. **Enhance dialogue**, next to the text field, uses the global CLIP from Settings to improve dialogue or thoughts while preserving language, meaning and voice. The proposal is reviewed before applying it to the original bubble and can be undone; a configured text generator is required. Text wraps to fit the available space. Bubbles are saved with the layout and included in exported PNGs.
+
+**Font** includes Sans serif, Serif, Monospace, Handwritten and Display, using local browser/system fonts. **Install font…** lets you add TTF, OTF, WOFF or WOFF2 files from your computer. They are validated in the browser and saved under `manga-maker-fonts/` in ComfyUI's user directory, available across projects. Fonts are not downloaded. When moving layouts to another installation, install the same font files there: the identifier depends on file content, allowing the typeface to be recovered. Export waits for the fonts in use to load.
+
+The **Clone preset** icon copies the selected References, Panels, Refinement or Finishing preset under a new name, including bundled and global presets. Copies are saved in the project without changing the original or fixing inherited model values. **Clone layout preset** is also available in Page layout, and each **LoRA presets** entry has a copy icon.
+
+**Structured prompt** provides TASK, Subject, Appearance, Pose, Expression, Composition, Environment, Lighting and Style for Krea2 and Qwen. Only nonempty fields are included, followed by **Free prompt**, which also accepts a complete prompt. **Show combined prompt** displays the resulting text. Each field is stored in settings and presets; editing one section preserves the others. The **Clear prompt** button next to the heading clears TASK, all eight sections and the free field.
+
+**Use image prompt**, in a reference thumbnail's context menu (gallery or connected references), copies the sections and free field saved when generating a reference, replacing the current prompt without changing models or other settings. It also recognizes section labels in saved text. The action is disabled when the image has no recoverable prompt data. After copying, you can edit each field independently.
+
+In **Settings → Global text generator**, select the CLIP, loading type, device and output length. This configuration is shared across projects, operations and engines; the encoder must support text generation and, for image analysis, vision. The **Enhance** button inside each section and the free field proposes an improvement to that field using the complete prompt as context. It does not change other sections. **Create prompt from image**, in a reference menu, analyzes the image and produces TASK and the eight sections to help reproduce it. Both results are reviewed before applying them; they do not generate images. The description is saved in the asset's metadata for **Use image prompt**, even if you close the Studio while it runs. Results can also be recovered from operation history.
+
+Size is selected through **Aspect ratio** and **Resolution · MP** (1 MP = 1,000,000 pixels). **Output size** offers **Inherit from original image** (the first reference during generation) or **Manual · AR and MP**. Inherit displays the original dimensions with controls disabled; Manual enables them and preserves manual settings when switching modes. For Qwen and Krea2 img2img refinement, Manual adjusts the image before encoding it, using a centered crop. With the Krea2 · edit engine, both complete references are preserved and adjustment is handled by the patch according to `fit_mode`, using the output AR and MP. Original files are preserved. Qwen rounds dimensions to multiples of 32; generation without references uses multiples of 8. Pages are exported in whole pixels. Previous size settings are converted to MP when opened.
+
+## Node dependencies
+
+Managing projects, importing images, editing pages and exporting them requires no additional node packages. PanelComposer is optional for importing its presets; the Studio has its own editor.
+
+| Feature | Dependencies |
+| --- | --- |
+| Qwen: generation, editing and finishing | ComfyUI with the native `TextEncodeQwenImage21` node. `QwenImage21Cache` is optional and used when available. |
+| Krea2 with bridge | `ComfyUI-Krea2-Qwen8B` package: `Krea2Qwen8BEncode` and `Krea2Qwen8BAdapter`. |
+| Native Krea2 Edit and visual references | `comfyui-krea2edit` package: `Krea2EditModelPatch` and `Krea2EditGroundedEncode`, with a `krea2` encoder and vision weights. |
+| Krea2 Edit with 8B bridge | `Krea2EditModelPatch` from `comfyui-krea2edit`; `Krea2Qwen8BGroundedEncode` and `Krea2Qwen8BAdapter` from `ComfyUI-Krea2-Qwen8B`. Qwen3-VL 8B encoder with vision and loading type `stable_diffusion`. |
+| Native Krea2 | ComfyUI with `krea2` encoder support in `CLIPLoader`; the bridge package is not required. |
+| Page analysis | Native `TextGenerate` and `SaveText` nodes, plus `CLIPLoader`. |
+| Enhancing fields and creating reference prompts | Native `TextGenerate`, `SaveText` and `CLIPLoader` nodes; uses the CLIP configured in the global text generator. Reference analysis requires an encoder with vision. |
+
+Generation also uses ComfyUI's standard loading, sampling, VAE and image nodes; LoRAs use `LoraLoader`, or `LoraLoaderModelOnly` for Krea2 Edit. The AR/MP selector creates an empty latent through the selected VAE; it does not require YAP-Utilities' `IllustriousAspectRatio`. The attention selector requires `ModelAttentionBackend` only when an explicit backend is selected. If a node is missing, the operation reports its name; other features remain available. After installing or enabling a package, restart ComfyUI when no jobs are active and use **Refresh lists**.
+
+Model, encoder, VAE and bridge files are separate requirements from nodes. Guided downloads cover the official weights in the catalog described below; bridges and other LoRAs must be installed manually. Downloading weights does not install or update node packages.
+
+## Global configuration and downloads
+
+**Sampling → Shift** adjusts the sampling shift for Krea2 and Krea2 Edit, including native, bridge and refinement paths. The default is **1.15**. An empty individual field inherits the engine's global Shift; if the Settings field is also empty, the model's own value is used. Presets can store an individual value or inherit the global value. An explicit shift is fixed and independent of resolution.
+
+In **Settings → Global model engine**, configure **Krea2**, **Krea2 Edit** and **Qwen Image 2.1** once. Values are shared across references, panels, refinement and finishing; the page analysis encoder inherits the engine's encoder unless individually overridden. The text generator keeps its separate global CLIP.
+
+Fields changed in the inference interface override only that value. **Use global model configuration** clears these individual overrides. Presets store explicit overrides: missing, empty or null model fields inherit the current global value without carrying over overrides from a previous preset. A preset with explicit values keeps them even when the global configuration changes. Previous per-operation global configurations are consolidated by engine; existing individual selections and project prompts/LoRAs are preserved.
+
+**Official model setup** shows missing weights and their sizes. **Download missing official weights** starts a download only when clicked, shows progress and allows retries after errors. Installed files are reused, including registered ComfyUI subfolders; new weights are written to their registered directories. Partial files are not exposed as models, and size and SHA-256 are verified before the final rename.
+
+| Engine | Downloadable weights | Sampling applied on completion |
+| --- | --- | --- |
+| Krea2 Turbo | `krea2_turbo_fp8_scaled.safetensors`, `qwen3vl_4b_fp8_scaled.safetensors`, `qwen_image_vae.safetensors` | 8 steps, CFG 1, Euler, Simple |
+| Krea2 Edit | The same official Turbo weights + `krea2_identity_edit_v1_2.safetensors` | 8 steps, CFG 1, Euler, Simple; Identity at strength 1 |
+| Qwen Image 2.1 | `qwen_image_2.1_int8_convrot.safetensors`, `qwen3vl_8b_int8_convrot.safetensors`, `qwen_image_2.1_vae_bf16.safetensors` | 25 steps, CFG 1, Euler, Simple |
+
+The bundled catalog pins revisions and hashes from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) and [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1), based on the official [Krea2 Turbo](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json), [Qwen T2I](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json) and [Qwen Edit](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json) workflows. Qwen uses the template's 25 steps; its comment distinguishes this setting from the original pipeline's recommendation of 40–50 steps. Krea Edit uses its [author's](https://huggingface.co/conradlocke/krea2-identity-edit) recommendation of 8–12 steps; there is no official Comfy-Org workflow for this community LoRA. It is the only downloadable LoRA exception; styles, accelerators, bridges and additional enhancer encoders are not downloaded.
+
+When a download completes, the recommended models and parameters are saved on the server as the engine's global configuration, even if the browser has closed. The interface updates inherited fields when reopened or when completion is detected. Explicit preset values and individual overrides are respected. **Use official models and recommended sampling** applies these values when all weights are already installed. The catalog and prompt construction are bundled with the plugin: no workflow files or runtime metadata downloads are required.
+
+## Engines
+
+- **Krea2 + bridge:** `ComfyUI-Krea2-Qwen8B`, a Qwen3-VL 8B encoder loaded as **stable_diffusion**, a compatible bridge and a VAE compatible with the checkpoint. The alternative native path uses **krea2** without a bridge.
+- **Krea2 editing and visual references:** grounded encoding of one or two images, VAEEncode for each source, `Krea2EditModelPatch`, zeroed negative conditioning and KSampler. The output latent is also connected to `target_latent` to preprocess references before sampling. This uses the final workflow's design, not the Ostris patch. The 8B bridge was trained with text, so its visual use remains experimental.
+- **Krea2 refinement:** VAEEncode of the original and denoising through the existing sampler. It does not use additional references or offer masks.
+- **Qwen:** native `TextEncodeQwenImage21` and `QwenImage21Cache` nodes, a **qwen_image** encoder and compatible model/VAE. References connect to the visual encoder and VAE. The first reference determines size; `resolution=0` avoids additional scaling except for the node's adjustment to multiples of 32. The installed version's number of sockets is respected.
+- **Analysis:** `TextGenerate`, `CLIPLoader` and `SaveText`; select an encoder with vision and text generation support. The diffusion model is not loaded.
+
+The extension cannot infer every incompatibility between checkpoints, encoders, VAEs and LoRAs. Errors and metadata preserve the operation context, prompt, models, seeds and LoRAs. If an engine is unavailable, importing, projects and page layout remain available.
+
+## Persistence and configuration
+
+The initial root is `manga-maker-projects/` under ComfyUI's user directory. **Settings** lets you change it. Each project folder contains `references/`, `panels/`, `pages/` and `project.json`, with relative paths, assets, versions, layouts, presets and jobs. The `manga-maker-settings.json` file in the user directory stores global settings.
+
+Explicit operation or preset fields take priority; other fields inherit the engine's global model configuration, resolved again when the configuration is used. Additional LoRA lists remain independent per operation, including order and model/encoder strengths; Krea2 Edit uses model strength only. Configuration and presets can be imported/exported as JSON.
+
+To move a project, wait for the queue to finish, move **its complete folder while preserving its identifier**, and select the new root. To migrate all projects, move every complete folder. Do not change paths inside `project.json`. Paths escaping the root, including symbolic links, are rejected. Imported originals are preserved byte for byte alongside a normalized PNG copy and WebP thumbnails. Removing images is reversible through **Trash**.
+
+Each job is recorded before submission to `/prompt`, with a UUID accepted by the installed server. Results are collected from the original queue's history and imported into the source project even if you switch projects or close the Studio. ComfyUI history is still required to collect results; an error is reported if it is deleted before collection. The × button in the bottom panel cancels a queued or running job by its ID without interrupting other jobs. The status shows “Cancelling” until cancellation is confirmed; if generation has already completed, its results are preserved.
+
+## Editor
+
+Rectangular and polygonal panels without the workflow's panel-count limit. Editable movement, resizing, vertices, duplication, reading order and layers, contain/cover fit, image zoom and offset, background, borders, gaps and guides. Empty panels are shown explicitly.
+
+The canvas uses the same renderer for preview and export, with stored geometry and framing. PanelComposer presets are reused and copied into the project; the Studio's interactive renderer allows individual framing that the installed compositor does not expose. Exported layouts are stored as JSON.
+
+Editor shortcuts: **Delete**, **Ctrl/Cmd Z**, **Ctrl/Cmd Y** or **Ctrl/Cmd Shift Z**, **Enter** to close a polygon, **Esc** to cancel, and **Ctrl + mouse wheel** to zoom. Typing in fields is not intercepted. Drags form a single undo operation. Galleries show up to 48 thumbnails per page.
+
+## Validation
+
+Inspected environment: ComfyUI 0.39.0 and frontend 1.55.14. Uses `app.registerExtension`, the public sidebar and commands, DOM dialogs and the existing API; it does not replace the central area through private APIs.
+
+- Storage and route tests: isolation, versions, originals, duplication, relocation, containment and results associated with the correct project.
+- Prompt tests: Krea/Qwen paths, actual reference connections, LoRA chains reaching the sampler, separate analysis and missing dependencies. Installed V3 schemas were checked without loading models.
+- Browser tests: references, panels, refinement, composition, analysis and finishing with the real frontend and isolated storage. Only the generative queue is simulated; models are not loaded. Pixel-identical export, reopening, light/dark themes, a small window and an unchanged ComfyUI graph.
+
+```sh
+python -m unittest discover -s custom_nodes/ComfyUI-MangaMakerStudio/tests -v
+node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_models.mjs
+node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_prompts.mjs /path/object_info.json
+python custom_nodes/ComfyUI-MangaMakerStudio/tests/check_schemas.py /path/object_info.json /tmp/manga-built-prompts.json
+# Playwright is already available; it is not a product dependency:
+CHROMIUM_PATH=/path/chromium node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/browser.mjs /path/playwright /path/python
+```
+
+Sources checked against the installed code: [extensions](https://docs.comfy.org/custom-nodes/js/javascript_overview), [sidebar](https://docs.comfy.org/custom-nodes/js/javascript_sidebar_tabs), [server](https://docs.comfy.org/development/comfyui-server/comms_routes) and [frontend development](https://github.com/Comfy-Org/ComfyUI_frontend/blob/main/docs/extensions/development.md).

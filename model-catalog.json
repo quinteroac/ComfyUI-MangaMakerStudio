@@ -1,0 +1,133 @@
+{
+  "profiles": {
+    "krea": {
+      "name": "Krea2 Turbo",
+      "artifacts": [
+        "krea-model",
+        "krea-encoder",
+        "krea-vae"
+      ],
+      "settings": {
+        "model": "krea2_turbo_fp8_scaled.safetensors",
+        "encoder": "qwen3vl_4b_fp8_scaled.safetensors",
+        "vae": "qwen_image_vae.safetensors",
+        "encoding": "native",
+        "encoder_type": "krea2",
+        "weight_dtype": "default",
+        "encoder_device": "default",
+        "adapter": "",
+        "steps": 8,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple"
+      },
+      "workflow": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json"
+    },
+    "krea_edit": {
+      "name": "Krea2 Edit \u00b7 Identity v1.2",
+      "artifacts": [
+        "krea-model",
+        "krea-encoder",
+        "krea-vae",
+        "krea-identity"
+      ],
+      "settings": {
+        "model": "krea2_turbo_fp8_scaled.safetensors",
+        "encoder": "qwen3vl_4b_fp8_scaled.safetensors",
+        "vae": "qwen_image_vae.safetensors",
+        "encoding": "native",
+        "encoder_type": "krea2",
+        "weight_dtype": "default",
+        "encoder_device": "default",
+        "adapter": "",
+        "steps": 8,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "identity_lora": "krea2_identity_edit_v1_2.safetensors",
+        "ref_boost": 4,
+        "ref_boost_a": 4
+      },
+      "workflow": "https://huggingface.co/conradlocke/krea2-identity-edit"
+    },
+    "qwen": {
+      "name": "Qwen Image 2.1",
+      "artifacts": [
+        "qwen-model",
+        "qwen-encoder",
+        "qwen-vae"
+      ],
+      "settings": {
+        "model": "qwen_image_2.1_int8_convrot.safetensors",
+        "encoder": "qwen3vl_8b_int8_convrot.safetensors",
+        "vae": "qwen_image_2.1_vae_bf16.safetensors",
+        "encoder_type": "qwen_image",
+        "weight_dtype": "default",
+        "encoder_device": "default",
+        "steps": 25,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple"
+      },
+      "workflow": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json"
+    }
+  },
+  "artifacts": [
+    {
+      "id": "krea-model",
+      "directory": "diffusion_models",
+      "filename": "krea2_turbo_fp8_scaled.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/diffusion_models/krea2_turbo_fp8_scaled.safetensors",
+      "size": 13141730784,
+      "sha256": "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1"
+    },
+    {
+      "id": "krea-encoder",
+      "directory": "text_encoders",
+      "filename": "qwen3vl_4b_fp8_scaled.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
+      "size": 5242467968,
+      "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+    },
+    {
+      "id": "krea-vae",
+      "directory": "vae",
+      "filename": "qwen_image_vae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/vae/qwen_image_vae.safetensors",
+      "size": 253806246,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    },
+    {
+      "id": "qwen-model",
+      "directory": "diffusion_models",
+      "filename": "qwen_image_2.1_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/df94239739eef7205973a145ffa6f441f7b64e84/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      "size": 7256783064,
+      "sha256": "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d"
+    },
+    {
+      "id": "qwen-encoder",
+      "directory": "text_encoders",
+      "filename": "qwen3vl_8b_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/df94239739eef7205973a145ffa6f441f7b64e84/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      "size": 9350798360,
+      "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f"
+    },
+    {
+      "id": "qwen-vae",
+      "directory": "vae",
+      "filename": "qwen_image_2.1_vae_bf16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/df94239739eef7205973a145ffa6f441f7b64e84/vae/qwen_image_2.1_vae_bf16.safetensors",
+      "size": 675509688,
+      "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+    },
+    {
+      "id": "krea-identity",
+      "directory": "loras",
+      "filename": "krea2_identity_edit_v1_2.safetensors",
+      "url": "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors",
+      "size": 1828256432,
+      "sha256": "6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/bitbof/klecks",
+  "revision": "7b1d4744b648de6133b0d45073af4efd2f998148",
+  "build": [
+    "npm ci",
+    "npm run icon:build",
+    "npm run lang:build",
+    "npm run build:embed"
+  ],
+  "runtime": "Bundled embed assets; no npm installation needed."
+}

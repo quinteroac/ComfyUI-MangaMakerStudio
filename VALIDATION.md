@@ -1,4 +1,20 @@
-# Validation — October 12, 2026
+# Validation — October 14, 2026
+
+- **85 API graphs and installed schemas passed**, including native/bridge Sketch to Art source scaling, shared source/target/sampler latent, effective denoise, LoRA order and Shift after the source patch.
+- **13 Python tests passed**, including Sketch result ownership without importing a project asset for every crop, cleanup of temporary input images and project-scoped job queries.
+- **Klecks Sketch browser checks:** actual native pen events, one job at a time, no inference submission until stroke completion, combining later strokes, skipping stale output, editable reused layer, native undo/redo, unchanged pixels outside the region, configurable feather/opacity, targeted cancellation and layered saving. The frontend and compiled Klecks are real; inference and uploads use isolated temporary storage and a simulated queue. No production prompts, real weights or actual inference are used.
+- The existing ComfyUI graph remains unchanged. Klecks was rebuilt from the recorded upstream revision with `drawing/klecks-sketch.patch`; the patch uses native canvas/history operations through public embed methods, rather than reopening the project to apply an AI layer.
+
+## Previous validation — October 13, 2026
+
+- **83 API graphs passed:** one to four ordered Krea2 Edit references in References and Panels, native and bridge encoding, all four image/latent connections, and selection of any reference as the initial latent with manual or inherited size. Graphs match the installed node input contracts and linked output types.
+- **Focused Chromium tests passed without JavaScript errors:** four references in both workspaces and encoding paths, picker limits, source order, a single latent selection preserved when reordering, denoise, manual/inherited size and clearing a removed latent reference.
+- **Connected-reference recovery and prompt reuse passed in Chromium:** a deleted reference is marked Trash, generation names the unavailable image without submitting a prompt, and restoring it preserves reference order and the selected latent. References and Panels reuse saved prompts from image menus without changing models; plain prompts populate Free prompt. Connected images without prompt data expose a disabled action, and Escape closes the menu while keeping Studio open.
+- **12 Python tests passed**, including original image downloads with correct PNG/JPEG/WebP extensions, MIME types and unchanged bytes. Chromium downloads passed for References, Panels, Pages, the preview and connected thumbnails, including Unicode filenames. JavaScript model inheritance tests also passed.
+
+The current node schemas were collected directly from the installed ComfyUI and Krea packages in CPU mode. Model filenames were replaced with fixture selections for graph and browser tests; no weights were loaded or downloaded. The focused browser test used the actual Studio UI with temporary storage, a local API stub and a simulated queue. ComfyUI was not started or restarted, and no production jobs or real inference were used.
+
+## Previous validation — October 12, 2026
 
 ComfyUI 0.39.0, frontend 1.55.14 and installed Chromium. Inspected `krea-2-edit-workflow-final.json`, Krea2-Qwen8B and `comfyui-krea2edit`, PanelComposer, Local Media Manager, and native Qwen, Generate Text, loader and LoRA nodes. The Studio gallery maintains its own relative-path manifest; it does not adopt Local Media Manager's global state or absolute paths.
 

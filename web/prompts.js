@@ -82,7 +82,7 @@ export const refinementPresets = {
 };
 
 export function referencePrompt(asset) {
-    if (asset.kind !== 'references' || asset.deleted || asset.missing) return null;
+    if (asset.deleted || asset.missing) return null;
     const settings = asset.metadata?.settings || {};
     const sections = {};
     for (const key of ['task', ...promptSections.map(([key]) => key)]) {
@@ -91,7 +91,8 @@ export function referencePrompt(asset) {
     }
     const prompt = typeof settings.prompt === 'string' ? settings.prompt : '';
     if (Object.keys(sections).length) return { prompt_sections: sections, prompt };
-    return parsePrompt(prompt) || parsePrompt(asset.metadata?.description_prompt || '');
+    if (prompt.trim()) return parsePrompt(prompt) || { prompt_sections: {}, prompt };
+    return parsePrompt(asset.metadata?.description_prompt || '');
 }
 
 export function parsePrompt(prompt) {
@@ -127,6 +128,11 @@ export function options(defs, node, field) {
     return Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options || [];
 }
 
+export function defaultAttention(defs, engine) {
+    if (engine !== 'krea' && engine !== 'krea_edit') return '';
+    return options(defs, 'ModelAttentionBackend', 'attention').includes('comfy kitchen attention') ? 'comfy kitchen attention' : 'pytorch attention';
+}
+
 export const textGeneratorDefaults = { encoder: '', encoder_type: 'stable_diffusion', encoder_device: 'default', max_length: 1024 };
 
 export function textInstruction(task, config, section) {
@@ -151,10 +157,11 @@ export const initialSettings = (engine) => ({
 });
 
 export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) {
-    if (engine === 'krea_edit' && (!imagePaths.length || imagePaths.length > 2)) throw new Error('Krea2 editing requires one or two reference images.');
+    if (engine === 'krea_edit' && !imagePaths.length) throw new Error('Krea2 editing requires at least one reference image.');
+    const sketch = operation === 'sketch' && engine === 'krea_edit';
     const isKrea = engine === 'krea' || engine === 'krea_edit';
     const kreaEditing = isKrea && imagePaths.length > 0 && operation !== 'refine';
-    if (kreaEditing && imagePaths.length > 2) throw new Error('Krea2 editing supports up to two references: scene and subject.');
+    if (kreaEditing && imagePaths.length > 4) throw new Error('Krea2 editing supports up to four reference images.');
     const graph = {};
     let count = 0;
     const add = (type, inputs) => {
@@ -195,23 +202,24 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
     let model = add('UNETLoader', { unet_name: check('UNETLoader', 'unet_name', config.model, 'Model'), weight_dtype: config.weight_dtype });
     let clip = load(config.encoder, config.encoder_type);
     const vae = add('VAELoader', { vae_name: check('VAELoader', 'vae_name', config.vae, 'VAE') });
-    if (engine === 'krea_edit' && config.identity_lora) {
+    if (engine === 'krea_edit' && !sketch && config.identity_lora) {
         const identity = config.loras.find(l => l.enabled && l.name === config.identity_lora);
         model = add('LoraLoaderModelOnly', { model,
             lora_name: check('LoraLoaderModelOnly', 'lora_name', config.identity_lora, 'Identity Edit LoRA'), strength_model: Number(identity?.model ?? 1) });
     }
     for (const lora of config.loras.filter(l => l.enabled)) {
-        if (engine === 'krea_edit' && lora.name === config.identity_lora) continue;
+        if (engine === 'krea_edit' && !sketch && lora.name === config.identity_lora) continue;
         const type = engine === 'krea_edit' ? 'LoraLoaderModelOnly' : 'LoraLoader';
         check(type, 'lora_name', lora.name, 'LoRA');
         const loaded = add(type, { model, lora_name: lora.name, strength_model: Number(lora.model), ...(engine === 'krea_edit' ? {} : { clip, strength_clip: Number(lora.clip) }) });
         model = loaded; if (engine !== 'krea_edit') clip = [loaded[0], 1];
     }
-    if (config.attention) {
-        check('ModelAttentionBackend', 'attention', config.attention, 'Attention');
-        model = add('ModelAttentionBackend', { model, attention: config.attention });
+    const attention = config.attention || defaultAttention(defs, engine);
+    if (attention) {
+        check('ModelAttentionBackend', 'attention', attention, 'Attention');
+        model = add('ModelAttentionBackend', { model, attention });
     }
-    if (isKrea && config.shift !== '' && config.shift != null) {
+    if (isKrea && !sketch && config.shift !== '' && config.shift != null) {
         const shift = Number(config.shift);
         // Equal shifts make the patch independent of canvas resolution.
         model = add('ModelSamplingFlux', { model, max_shift: shift, base_shift: shift, width: 1024, height: 1024 });
@@ -222,7 +230,7 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
             const type = config.encoding === 'bridge' ? 'Krea2Qwen8BGroundedEncode' : 'Krea2EditGroundedEncode';
             const expected = config.encoding === 'bridge' ? 'stable_diffusion' : 'krea2';
             if (config.encoder_type !== expected) throw new Error(`This Krea2 editing path requires an encoder of type ${expected}.`);
-            positive = add(type, { clip, prompt, image: images[0], ...(images[1] ? { image_b: images[1] } : {}),
+            positive = add(type, { clip, prompt, ...Object.fromEntries(images.map((image, i) => [['image', 'image_b', 'image_c', 'image_d'][i], image])),
                 grounding_px: Number(config.grounding_px ?? 768), system_prompt: config.grounding_system_prompt || '' });
         } else if (config.encoding === 'bridge') {
             if (config.encoder_type !== 'stable_diffusion') throw new Error('The Qwen-VL 8B bridge requires CLIPLoader type stable_diffusion.');
@@ -247,12 +255,13 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         if (!images.length) throw new Error('Select the original image.');
         latent = add('VAEEncode', { pixels: images[0], vae });
     }
-    const sources = kreaEditing ? images.map(pixels => add('VAEEncode', { pixels, vae })) : [];
-    const useReferenceLatent = engine === 'krea_edit' && config.latent_reference_index != null;
+    const sourceImages = sketch ? images.map(image => add('FluxKontextImageScale', { image })) : images;
+    const sources = kreaEditing ? sourceImages.map(pixels => add('VAEEncode', { pixels, vae })) : [];
+    const useReferenceLatent = engine === 'krea_edit' && (sketch || config.latent_reference_index != null);
     if (useReferenceLatent) {
-        const index = config.latent_reference_index;
+        const index = sketch ? 0 : config.latent_reference_index;
         if (!images[index]) throw new Error('The selected latent reference is not connected.');
-        if (config.size_mode === 'manual') {
+        if (!sketch && config.size_mode === 'manual') {
             const pixels = add('ImageScale', { image: images[index], upscale_method: 'lanczos', ...imageDimensions(config), crop: 'center' });
             latent = add('VAEEncode', { pixels, vae });
         } else latent = sources[index];
@@ -265,10 +274,16 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
     }
     let sampled;
     if (kreaEditing) {
-        const source = sources[0], sourceB = sources[1];
-        model = add('Krea2EditModelPatch', { model, source_latent: source, vae, source_image: images[0], target_latent: latent,
-            ...(sourceB ? { source_latent_b: sourceB, source_image_b: images[1] } : {}),
+        model = add('Krea2EditModelPatch', { model, vae, target_latent: latent,
+            ...Object.fromEntries(sources.flatMap((source, i) => {
+                const suffix = ['', '_b', '_c', '_d'][i];
+                return [[`source_latent${suffix}`, source], [`source_image${suffix}`, sourceImages[i]]];
+            })),
             ref_boost: Number(config.ref_boost ?? 1), ref_boost_a: Number(config.ref_boost_a ?? 1), fit_mode: config.fit_mode || 'fit' });
+        if (sketch && config.shift !== '' && config.shift != null) {
+            const shift = Number(config.shift);
+            model = add('ModelSamplingFlux', { model, max_shift: shift, base_shift: shift, width: 1024, height: 1024 });
+        }
         negative = add('ConditioningZeroOut', { conditioning: positive });
         sampled = add('KSampler', { model, positive, negative, latent_image: latent, seed: Number(config.seed), steps: Number(config.steps),
             cfg: Number(config.cfg), sampler_name: config.sampler, scheduler: config.scheduler, denoise: useReferenceLatent ? Number(config.denoise ?? 0.65) : 1 });

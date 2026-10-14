@@ -1,0 +1,270 @@
+diff --git a/src/app/script/app/kl-app.ts b/src/app/script/app/kl-app.ts
+index bea10c1..a2aeeb9 100644
+--- a/src/app/script/app/kl-app.ts
++++ b/src/app/script/app/kl-app.ts
+@@ -11,6 +11,7 @@ import {
+     TExportType,
+     TGradient,
+     TKlProject,
++    TKlLayerUpdate,
+     TRgb,
+     TUiLayout,
+ } from '../klecks/kl-types';
+@@ -33,7 +34,7 @@ import { ToolspaceScroller } from '../klecks/ui/components/toolspace-scroller';
+ import { translateSmoothing } from '../klecks/utils/translate-smoothing';
+ import { KlAppImportHandler } from './kl-app-import-handler';
+ import { LayersUi } from '../klecks/ui/tool-tabs/layers-ui/layers-ui';
+-import { TCss, TVector2D } from '../bb/bb-types';
++import { TCss, TRect, TVector2D } from '../bb/bb-types';
+ import { asyncThrow, css, getFilenameDate, randomUuid, sleep } from '../bb/base/base';
+ import { createConsoleApi } from './console-api';
+ import { KL_CONFIG } from '../klecks/kl-config';
+@@ -129,6 +130,8 @@ type TKlAppOptionsEmbed = {
+     url: string;
+     enableImageDropperImport?: boolean; // default false
+     onSubmit: (onSuccess: () => void, onError: () => void) => void;
++    onStrokeStart?: () => void;
++    onStrokeEnd?: () => void;
+ };
+ 
+ export type TKlAppParams = {
+@@ -269,6 +272,8 @@ export class KlApp {
+ 
+     // ----------------------------------- public -----------------------------------
+ 
++    applyLayer: (layer: TKlLayerUpdate) => void;
++
+     constructor(p: TKlAppParams) {
+         setupUnfocusOnClickService();
+         this.embed = p.embed;
+@@ -435,6 +440,7 @@ export class KlApp {
+ 
+         drawEventChain.setChainOut(((event: TDrawEvent) => {
+             if (event.type === 'down') {
++                this.embed?.onStrokeStart?.();
+                 this.toolspace.style.pointerEvents = 'none';
+                 currentBrushUi.startLine(event.x, event.y, event.pressure);
+                 this.easelBrush.setLastDrawEvent({ x: event.x, y: event.y });
+@@ -449,6 +455,7 @@ export class KlApp {
+                 this.toolspace.style.pointerEvents = '';
+                 currentBrushUi.endLine();
+                 this.easel.requestRender();
++                this.embed?.onStrokeEnd?.();
+             }
+             if (event.type === 'line') {
+                 currentBrushUi.getBrush().drawLineSegment(event.x0, event.y0, event.x1, event.y1);
+@@ -2327,6 +2334,34 @@ export class KlApp {
+             });
+         }
+         this.saveReminder?.init();
++        this.applyLayer = (layer: TKlLayerUpdate) => {
++            const r = layer.region;
++            if (r.x < 0 || r.y < 0 || r.width < 1 || r.height < 1 || r.x + r.width > this.klCanvas.getWidth() || r.y + r.height > this.klCanvas.getHeight()) {
++                throw new Error('The selected region no longer fits the canvas.');
++            }
++            applyUncommitted();
++            let index = this.klCanvas.getLayers().findIndex((item) => item.name === layer.name);
++            const draw = (ctx: CanvasRenderingContext2D) => {
++                ctx.save();
++                ctx.setTransform(1, 0, 0, 1, 0, 0);
++                ctx.globalAlpha = 1;
++                ctx.globalCompositeOperation = 'source-over';
++                ctx.clearRect(r.x, r.y, r.width, r.height);
++                ctx.drawImage(layer.image, r.x, r.y);
++                ctx.restore();
++            };
++            if (index < 0) {
++                const added = this.klCanvas.addLayer(undefined, {
++                    name: layer.name, mixModeStr: 'source-over', isVisible: true, opacity: 1, image: draw,
++                });
++                if (added === false) throw new Error('No free layer slots. Merge or delete a layer before generating.');
++                index = added;
++            } else {
++                this.klCanvas.drawOperation(index, draw);
++            }
++            setCurrentLayer(index);
++            this.layersUi.update(index);
++        };
+     }
+ 
+     // -------- interface --------
+@@ -2369,6 +2404,14 @@ export class KlApp {
+         return await klCanvasToPsdBlob(this.klCanvas, false);
+     };
+ 
++    setGuideRegion(region: TRect | null): void {
++        this.easel.setGuideRegion(region);
++    }
++
++    getRevision(): number {
++        return this.klHistory.getChangeCount();
++    }
++
+     getProject(): TKlProject {
+         return this.klCanvas.getProject();
+     }
+diff --git a/src/app/script/embed/bootstrap/embed-wrapper.ts b/src/app/script/embed/bootstrap/embed-wrapper.ts
+index 5d1d41c..6576683 100644
+--- a/src/app/script/embed/bootstrap/embed-wrapper.ts
++++ b/src/app/script/embed/bootstrap/embed-wrapper.ts
+@@ -1,5 +1,6 @@
++import { TRect } from '../../bb/bb-types';
+ import { Embed, TEmbedParams, TReadPSD } from '../../main-embed';
+-import { TKlEmbedProject, TKlProject } from '../../klecks/kl-types';
++import { TKlEmbedProject, TKlProject, TKlLayerUpdate } from '../../klecks/kl-types';
+ import logoImg from 'url:/src/app/img/klecks-logo.png';
+ import { getEmbedUrl } from './get-embed-url';
+ import { initLANG, LANG } from '../../language/language';
+@@ -112,6 +113,21 @@ export class EmbedWrapper {
+         loadAgPsd();
+     }
+ 
++    setGuideRegion(region: TRect | null): void {
++        if (!this.embed) throw new Error('Embed not initialized');
++        this.embed.setGuideRegion(region);
++    }
++
++    getRevision(): number {
++        if (!this.embed) throw new Error('Embed not initialized');
++        return this.embed.getRevision();
++    }
++
++    applyLayer(layer: TKlLayerUpdate): void {
++        if (!this.embed) throw new Error('Embed not initialized');
++        this.embed.applyLayer(layer);
++    }
++
+     openProject(project: TKlEmbedProject) {
+         if (this.embed) {
+             this.embed.openProject(project);
+diff --git a/src/app/script/klecks/kl-types.ts b/src/app/script/klecks/kl-types.ts
+index b59ad5e..62b6b85 100644
+--- a/src/app/script/klecks/kl-types.ts
++++ b/src/app/script/klecks/kl-types.ts
+@@ -324,3 +324,9 @@ export type TFillSampling = 'current' | 'all' | 'above';
+ export type TUiLayout = 'left' | 'right';
+ export type TExportType = 'png' | 'jpg' | 'layers' | 'psd';
+ export type TInterpolationAlgorithm = 'smooth' | 'pixelated';
++
++export type TKlLayerUpdate = {
++    name: string;
++    image: HTMLCanvasElement;
++    region: { x: number; y: number; width: number; height: number };
++};
+diff --git a/src/app/script/klecks/ui/easel/easel.ts b/src/app/script/klecks/ui/easel/easel.ts
+index 3d569d9..ce60000 100644
+--- a/src/app/script/klecks/ui/easel/easel.ts
++++ b/src/app/script/klecks/ui/easel/easel.ts
+@@ -15,7 +15,7 @@ import {
+     TEaselTool,
+     TEaselToolTrigger,
+ } from './easel.types';
+-import { TVector2D } from '../../../bb/bb-types';
++import { TRect, TVector2D } from '../../../bb/bb-types';
+ import { zoomByStep } from '../project-viewport/utils/zoom-by-step';
+ import { SelectionRenderer } from './selection-renderer';
+ import { KL_CONFIG } from '../../kl-config';
+@@ -92,6 +92,7 @@ export class Easel<GToolId extends string> {
+     private toolId: GToolId;
+     private tempToolId: GToolId | undefined;
+     private animationFrameId: ReturnType<typeof requestAnimationFrame> | undefined;
++    private guideRegion: TRect | null = null;
+     private doRender = false; // true -> will render on next renderLoop
+     private cursorPos: TVector2D | undefined; // so brush cursor not top left corner after reload
+     private isFrozen: boolean = false; // disable interaction with the easel whatsoever
+@@ -347,6 +348,21 @@ export class Easel<GToolId extends string> {
+             renderAfter: (ctx, renderedTransform) => {
+                 const tool = this.getActiveTool();
+                 tool.renderAfterViewport?.(ctx, renderedTransform);
++                if (this.guideRegion) {
++                    const r = this.guideRegion;
++                    const scale = Math.abs(renderedTransform.scaleX);
++                    ctx.save();
++                    ctx.globalAlpha = 1;
++                    ctx.globalCompositeOperation = 'source-over';
++                    ctx.strokeStyle = '#ffffff';
++                    ctx.lineWidth = 4 / scale;
++                    ctx.strokeRect(r.x, r.y, r.width, r.height);
++                    ctx.strokeStyle = '#3584ff';
++                    ctx.lineWidth = 2 / scale;
++                    ctx.setLineDash([8 / scale, 5 / scale]);
++                    ctx.strokeRect(r.x, r.y, r.width, r.height);
++                    ctx.restore();
++                }
+             },
+         });
+         this.targetTransform = this.viewport.getTransform();
+@@ -768,6 +784,11 @@ export class Easel<GToolId extends string> {
+         return this.viewport.getTransform();
+     }
+ 
++    setGuideRegion(region: TRect | null): void {
++        this.guideRegion = region ? { ...region } : null;
++        this.requestRender();
++    }
++
+     setTransform(transform: TViewportTransform): void {
+         this.setTargetTransform(transform, true);
+     }
+diff --git a/src/app/script/main-embed.ts b/src/app/script/main-embed.ts
+index 63fa062..3132d92 100644
+--- a/src/app/script/main-embed.ts
++++ b/src/app/script/main-embed.ts
+@@ -1,6 +1,7 @@
++import { TRect } from './bb/bb-types';
+ import './bb/base/polyfills';
+ import { KlApp } from './app/kl-app';
+-import { TKlEmbedProject, TKlProject } from './klecks/kl-types';
++import { TKlEmbedProject, TKlProject, TKlLayerUpdate } from './klecks/kl-types';
+ import { klPsdToKlProject, psdToKlPsd } from './klecks/storage/psd';
+ import { LANG } from './language/language';
+ import { loadAgPsd, TAgPsd } from './klecks/storage/load-ag-psd';
+@@ -13,6 +14,9 @@ initIconCss();
+ 
+ export type TEmbedParams = {
+     project?: TKlEmbedProject;
++    onReady?: () => void;
++    onStrokeStart?: () => void;
++    onStrokeEnd?: () => void;
+     onSubmit: (onSuccess: () => void, onError: () => void) => void;
+     embedUrl?: string;
+     logoImg?: string;
+@@ -69,6 +73,8 @@ export class Embed {
+                     url: this.p.embedUrl,
+                     enableImageDropperImport: !!this.p.enableImageDropperImport,
+                     onSubmit: this.p.onSubmit,
++                    onStrokeStart: this.p.onStrokeStart,
++                    onStrokeEnd: this.p.onStrokeEnd,
+                 },
+             });
+ 
+@@ -77,6 +83,7 @@ export class Embed {
+             this.loadingScreenTextEl = null;
+ 
+             document.body.append(this.klApp.getElement());
++            this.p.onReady?.();
+         } catch (e) {
+             this.initError('' + e);
+             console.error(e);
+@@ -112,6 +119,21 @@ export class Embed {
+         }
+     }
+ 
++    setGuideRegion(region: TRect | null): void {
++        if (!this.klApp) throw new Error('App not initialized');
++        this.klApp.setGuideRegion(region);
++    }
++
++    getRevision(): number {
++        if (!this.klApp) throw new Error('App not initialized');
++        return this.klApp.getRevision();
++    }
++
++    applyLayer(layer: TKlLayerUpdate): void {
++        if (!this.klApp) throw new Error('App not initialized');
++        this.klApp.applyLayer(layer);
++    }
++
+     async getPNG(): Promise<Blob> {
+         if (!this.klApp) {
+             throw new Error('App not initialized');

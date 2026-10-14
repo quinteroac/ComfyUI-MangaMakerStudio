@@ -7,5 +7,14 @@
     "npm run lang:build",
     "npm run build:embed"
   ],
-  "runtime": "Bundled embed assets; no npm installation needed."
+  "runtime": "Bundled embed assets; no npm installation needed.",
+  "local_patch": "../klecks-sketch.patch",
+  "local_api": [
+    "applyLayer",
+    "getRevision",
+    "onReady",
+    "onStrokeStart",
+    "onStrokeEnd",
+    "setGuideRegion"
+  ]
 }

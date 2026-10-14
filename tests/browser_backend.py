@@ -83,10 +83,30 @@ async def main():
         @instance.routes.post('/test/history')
         async def history(request):
             data = await request.json(); instance.prompt_queue.history[data['id']] = data['history']; return web.json_response({'ok': True})
+        @instance.routes.post('/test/upload')
+        async def upload(request):
+            fields = {}; content = None; filename = ''
+            reader = await request.multipart()
+            async for part in reader:
+                if part.name == 'image': content = bytes(await part.read()); filename = part.filename
+                else: fields[part.name] = await part.text()
+            path = routes.contained(root / 'output', Path(fields.get('subfolder', '')) / filename)
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
+            with Image.open(io.BytesIO(content)) as image: width, height = image.size
+            return web.json_response({'name': filename, 'subfolder': fields.get('subfolder', ''), 'type': 'temp', 'width': width, 'height': height})
+        @instance.routes.get('/test/view')
+        async def view(request):
+            return web.FileResponse(routes.contained(root / 'output', Path(request.query.get('subfolder', '')) / request.query['filename']))
+        @instance.routes.post('/test/enqueue')
+        async def enqueue(request):
+            body = await request.json(); instance.prompt_queue.pending.append((1, body['prompt_id']))
+            return web.json_response({'prompt_id': body['prompt_id'], 'number': 1, 'node_errors': {}})
+
         @instance.routes.post('/test/complete')
         async def complete(request):
             body = await request.json()
             prompt_id = body['prompt_id']
+            instance.prompt_queue.pending = [item for item in instance.prompt_queue.pending if item[1] != prompt_id]
             graph = body['prompt']
             output_id, output = next((node_id, node) for node_id, node in graph.items() if node['class_type'] in ('SaveImage', 'SaveText'))
             if output['class_type'] == 'SaveText':

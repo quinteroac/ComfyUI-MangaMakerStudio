@@ -48,3 +48,8 @@
 @media(max-width:650px){.mm-controls-toggle{writing-mode:horizontal-tb;margin:6px}}
 
 @media(max-width:650px){.mm-design-gallery.mm-gallery-open{display:block;width:170px;min-width:130px}}
+
+.mm-modal form.mm-name-form{flex-direction:column;align-items:stretch}.mm-name-form>input{width:100%;min-width:0;flex:none}.mm-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+
+.mm-drawing-workspace{display:flex;flex:1;min-height:0;gap:12px}.mm-drawing-workspace>.mm-drawing-frame{min-width:0}.mm-sketch-controls{width:340px;flex-shrink:0;overflow:auto;padding:10px;border:1px solid var(--mm-line);border-radius:7px}.mm-sketch-controls h3{margin:0 0 12px}.mm-sketch-controls .mm-field{max-width:none}.mm-sketch-preview{display:block;max-width:100%;margin:8px auto;touch-action:none;border:1px solid var(--mm-line);cursor:crosshair}.mm-sketch-coordinates{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mm-sketch-controls>details{margin:10px 0}.mm-sketch-controls .mm-toolbar{padding:8px 0}.mm-sketch-controls [role=status]{display:block;margin-top:8px}.mm-sketch-controls .mm-toolbar button{flex:1}
+@media(max-width:850px){.mm-drawing-workspace{flex-direction:column;overflow:auto}.mm-drawing-workspace>.mm-drawing-frame{min-height:50vh}.mm-sketch-controls{width:100%;max-height:45vh}}

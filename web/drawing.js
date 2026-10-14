@@ -1,6 +1,7 @@
 import { api } from '../../scripts/api.js';
 import { el, button, field, request, assetUrl, sizeControls } from './client.js';
 import { imageDimensions, sizeSettings } from './size.js';
+import { sketchControls } from './drawing-ai.js';
 
 export function openDrawing(studio, kind, source = null) {
     if (!source) {
@@ -16,12 +17,14 @@ function drawingEditor(studio, kind, source, drawingName, size) {
     const project = studio.project.id;
     const iframe = el('iframe', { title: 'Klecks drawing editor', sandbox: 'allow-scripts allow-same-origin allow-downloads', class: 'mm-drawing-frame' });
     const name = el('input', { value: drawingName, 'aria-label': 'Drawing name' }), status = el('small', { role: 'status', text: 'Loading Klecks…' });
-    const send = (type, data = {}) => iframe.contentWindow.postMessage({ type, ...data }, location.origin);
+    const send = (type, data = {}) => iframe.contentWindow?.postMessage({ type, ...data }, location.origin);
     const save = button('Save to project', () => { exporting = true; save.disabled = true; status.textContent = 'Saving drawing…'; send('manga-drawing-export'); }, { disabled: true, class: 'mm-primary' });
     const dialog = studio.modal(kind === 'references' ? 'Draw reference · Klecks' : 'Draw panel · Klecks', el('div', { class: 'mm-drawing-body' },
         el('div', { class: 'mm-toolbar' }, field('Drawing name', name), save, status), iframe));
     dialog.classList.add('mm-drawing-dialog');
     let parent = source?.id || null, saving = false, exporting = false, opened = false, dirty = false;
+    const art = sketchControls(studio, kind, project, send, () => { save.disabled = saving || exporting || !opened || art.busy; send('manga-drawing-ai-busy', { busy: art.busy }); });
+    const workspace = el('div', { class: 'mm-drawing-workspace' }); iframe.replaceWith(workspace); workspace.append(iframe, art.element);
     const close = () => {
         if (saving || exporting) return;
         if (!dirty) { dialog.close(); return; }
@@ -33,13 +36,13 @@ function drawingEditor(studio, kind, source, drawingName, size) {
     const abort = new AbortController();
     window.addEventListener('message', async event => {
         if (event.source !== iframe.contentWindow || event.origin !== location.origin || !event.data?.type?.startsWith('manga-drawing-')) return;
-        const data = event.data;
+        const data = event.data; art.handle(data).catch(error => { status.textContent = error.message; });
         if (data.type === 'manga-drawing-ready') send('manga-drawing-init', { ...size,
             ...(source?.metadata?.drawing_document ? { psdUrl: api.apiURL(`/manga-maker/projects/${project}/assets/${source.id}/drawing`) } : source ? { imageUrl: assetUrl(project, source.id) } : {}) });
-        else if (data.type === 'manga-drawing-opened') { opened = true; status.textContent = 'Draw with Klecks, then save to your project.'; save.disabled = false; }
-        else if (data.type === 'manga-drawing-changed') dirty = true;
+        else if (data.type === 'manga-drawing-opened') { opened = true; status.textContent = 'Draw with Klecks, then save to your project.'; save.disabled = art.busy; }
+        else if (data.type === 'manga-drawing-changed' || data.type === 'manga-drawing-dirty') dirty = true;
         else if (data.type === 'manga-drawing-saving') { exporting = true; save.disabled = true; status.textContent = 'Saving drawing…'; }
-        else if (data.type === 'manga-drawing-error') { exporting = false; status.textContent = data.error; save.disabled = !opened; }
+        else if (data.type === 'manga-drawing-error') { exporting = false; status.textContent = data.error; save.disabled = !opened || art.busy; }
         else if (data.type === 'manga-drawing-save' && !saving) {
             exporting = false; saving = true; save.disabled = true;
             try {
@@ -53,9 +56,9 @@ function drawingEditor(studio, kind, source, drawingName, size) {
                 }
                 dirty = false; status.textContent = 'Saved to project · Layers preserved'; send('manga-drawing-saved');
             } catch (error) { status.textContent = `Could not save drawing: ${error.message}`; send('manga-drawing-save-failed'); }
-            finally { saving = false; save.disabled = false; }
+            finally { saving = false; save.disabled = art.busy; }
         }
     }, { signal: abort.signal });
-    dialog.addEventListener('close', () => abort.abort());
+    dialog.addEventListener('close', () => { abort.abort(); art.dispose(); });
     iframe.src = api.apiURL('/manga-maker/drawing/index.html');
 }

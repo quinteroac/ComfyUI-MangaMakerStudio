@@ -9,6 +9,7 @@ import tempfile
 import types
 import unittest
 import uuid
+from urllib.parse import unquote
 
 from aiohttp import FormData, web
 from aiohttp.test_utils import TestClient, TestServer
@@ -45,6 +46,50 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.close(); self.temp.cleanup()
+
+    async def test_sketch_result_does_not_create_region_assets_and_cleans_temp_input(self):
+        project = self.store.create('Sketch'); job_id = str(uuid.uuid4())
+        image = io.BytesIO(); Image.new('RGB', (64, 96), 'green').save(image, format='PNG')
+        (self.root / 'output' / 'sketch.png').write_bytes(image.getvalue())
+        temp = self.root / 'output' / 'manga-maker-drawing' / project['id'] / f'{job_id}.png'
+        temp.parent.mkdir(parents=True); temp.write_bytes(image.getvalue())
+        response = await self.client.post(f"/manga-maker/projects/{project['id']}/jobs", json={
+            'id': job_id, 'operation': 'sketch', 'kind': 'panels', 'engine': 'krea_edit', 'settings': {},
+            'prompt': {}, 'output_node': '1', 'sources': [], 'name': 'Sketch to Art', 'drawing_output': {'filename': '../forged'},
+        })
+        self.assertEqual(response.status, 200); self.assertNotIn('drawing_output', await response.json())
+        self.queue.history[job_id] = {'status': {'completed': True}, 'outputs': {'1': {'images': [{'filename': 'sketch.png', 'subfolder': '', 'type': 'output'}]}}}
+        response = await self.client.get(f"/manga-maker/projects/{project['id']}"); data = await response.json()
+        self.assertEqual(data['assets'], []); self.assertEqual(data['jobs'][0]['state'], 'complete')
+        self.assertEqual(data['jobs'][0]['drawing_output'], {'filename': 'sketch.png', 'subfolder': '', 'type': 'output'})
+        self.assertFalse(temp.exists())
+        response = await self.client.get(f"/manga-maker/projects/{project['id']}/jobs/{job_id}")
+        self.assertEqual((await response.json())['state'], 'complete')
+        other = self.store.create('Other drawing')
+        response = await self.client.get(f"/manga-maker/projects/{other['id']}/jobs/{job_id}")
+        self.assertEqual(response.status, 400)
+        temp.write_bytes(image.getvalue())
+        response = await self.client.delete(f"/manga-maker/projects/{project['id']}/drawing-inputs/{job_id}")
+        self.assertEqual(response.status, 200); self.assertFalse(temp.exists())
+        response = await self.client.delete(f"/manga-maker/projects/{project['id']}/drawing-inputs/not-a-uuid")
+        self.assertEqual(response.status, 400)
+
+    async def test_image_download_preserves_format_extension_and_source_bytes(self):
+        project = self.store.create('Downloads')
+        for kind, image_format, name, filename, media_type in [
+            ('references', 'PNG', 'Reference', 'Reference.png', 'image/png'),
+            ('panels', 'JPEG', 'Panel.png', 'Panel.jpg', 'image/jpeg'),
+            ('pages', 'WEBP', 'Página / 1', 'Página _ 1.webp', 'image/webp'),
+        ]:
+            content = io.BytesIO(); Image.new('RGB', (32, 48), 'blue').save(content, format=image_format)
+            asset = self.store.import_image(project['id'], kind, content.getvalue(), name)
+            response = await self.client.get(f"/manga-maker/projects/{project['id']}/assets/{asset['id']}?original=1")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(await response.read(), content.getvalue())
+            self.assertEqual(response.headers['Content-Type'], media_type)
+            header = response.headers['Content-Disposition']
+            self.assertTrue(header.startswith("attachment; filename*=UTF-8''"))
+            self.assertEqual(unquote(header.split("UTF-8''", 1)[1]), filename)
 
     async def test_official_download_is_explicit_verified_and_retryable(self):
         module = sys.modules['manga_route_test.models']; downloads = self.routes.model_downloads

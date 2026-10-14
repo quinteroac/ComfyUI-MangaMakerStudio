@@ -2,12 +2,14 @@ import asyncio
 import functools
 import json
 from pathlib import Path
+import re
 import shutil
 import time
 import uuid
+from urllib.parse import quote
 
 from aiohttp import web
-from PIL import UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
 import folder_paths
 from server import PromptServer
@@ -213,7 +215,13 @@ async def view(request):
     path = store.asset_path(project, asset)
     if request.query.get('original') == '1':
         path = contained(store.directory(project), f"{asset['kind']}/{asset['id']}.original")
-        return web.FileResponse(path, headers={'Content-Disposition': 'attachment; filename="original"'})
+        with Image.open(path) as image:
+            extension = '.jpg' if image.format == 'JPEG' else f'.{image.format.lower()}'
+            media_type = Image.MIME.get(image.format, 'application/octet-stream')
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', asset['name']).strip(' .') or asset['id']
+        if Path(name).suffix.lower() in Image.registered_extensions():
+            name = Path(name).stem
+        return web.FileResponse(path, headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name + extension, safe='')}", 'Content-Type': media_type})
     if request.query.get('thumb') == '1':
         path = contained(store.directory(project), f"{asset['kind']}/{asset['id']}.thumb.webp")
     return web.FileResponse(path)
@@ -261,6 +269,18 @@ def synchronize(project_id):
                         if job['operation'] == 'describe':
                             asset = next(a for a in data['assets'] if a['id'] == job['sources'][0])
                             asset.setdefault('metadata', {})['description_prompt'] = job['text']
+                    elif job['operation'] == 'sketch':
+                        images = output.get('images', [])
+                        if not images:
+                            job['error'] = 'Sketch to Art returned no image.'
+                        else:
+                            image = images[0]
+                            if image.get('type') not in ('output', 'temp'):
+                                raise ValueError('Unsupported result type')
+                            directory = folder_paths.get_output_directory() if image['type'] == 'output' else folder_paths.get_temp_directory()
+                            contained(directory, Path(image.get('subfolder', '')) / image['filename'])
+                            job['drawing_output'] = {key: image[key] for key in ('filename', 'type')}
+                            job['drawing_output']['subfolder'] = image.get('subfolder', '')
                     else:
                         for index, image in enumerate(output.get('images', [])):
                             if image.get('type') not in ('output', 'temp'):
@@ -274,7 +294,7 @@ def synchronize(project_id):
                             job.setdefault('results', [])
                             if asset['id'] not in job['results']:
                                 job['results'].append(asset['id'])
-                    state = 'complete'
+                    state = 'error' if job['operation'] == 'sketch' and not job.get('drawing_output') else 'complete'
                 else:
                     state = 'cancelled'
             elif prompt_id in running_ids:
@@ -286,6 +306,8 @@ def synchronize(project_id):
             elif time.time() - job['created'] > 120:
                 state = 'error'
                 job['error'] = 'The queue or history no longer contains this job; check ComfyUI history.'
+            if job['operation'] == 'sketch' and state in ('complete', 'error', 'cancelled'):
+                contained(folder_paths.get_temp_directory(), f"manga-maker-drawing/{project_id}/{str(uuid.UUID(job['id']))}.png").unlink(missing_ok=True)
             if state != job['state']:
                 job['state'] = state
                 changed = True
@@ -300,12 +322,22 @@ def synchronize(project_id):
             store.write(fresh)
 
 
+@routes.delete('/manga-maker/projects/{project}/drawing-inputs/{job}')
+@endpoint
+async def remove_drawing_input(request):
+    project = request.match_info['project']; store.read(project)
+    job_id = str(uuid.UUID(request.match_info['job']))
+    contained(folder_paths.get_temp_directory(), f'manga-maker-drawing/{project}/{job_id}.png').unlink(missing_ok=True)
+    return web.json_response({'removed': True})
+
+
 @routes.post('/manga-maker/projects/{project}/jobs')
 @endpoint
 async def register_job(request):
     project = request.match_info['project']
     body = await request.json()
     body['id'] = str(uuid.UUID(body['id']))
+    body.pop('drawing_output', None)
     if body['kind'] not in ('references', 'panels', 'pages'):
         raise ValueError('Invalid gallery')
     with store.lock:
@@ -316,6 +348,16 @@ async def register_job(request):
         data['jobs'].append(body)
         store.write(data)
     return web.json_response(body)
+
+
+@routes.get('/manga-maker/projects/{project}/jobs/{job}')
+@endpoint
+async def get_job(request):
+    project = request.match_info['project']; await asyncio.to_thread(synchronize, project)
+    job = next((item for item in store.read(project)['jobs'] if item['id'] == request.match_info['job']), None)
+    if job is None:
+        raise ValueError('Job not found')
+    return web.json_response(job)
 
 
 @routes.patch('/manga-maker/projects/{project}/jobs/{job}')

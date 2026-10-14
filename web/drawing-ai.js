@@ -21,6 +21,12 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         inheritModels(cfg, studio.settings.models.krea_edit, 'krea_edit'); studio.saveSoon();
     }
     let ready = false, disposed = false, revision = 0, active = null, job = null, pending = false, stopping = false, polling = false;
+    let wakePoll, completionNotified = false;
+    const abort = new AbortController();
+    for (const name of ['execution_success', 'execution_error', 'execution_interrupted']) api.addEventListener(name, event => {
+        if (event.detail.prompt_id !== job?.id) return;
+        completionNotified = true; wakePoll?.();
+    }, { signal: abort.signal });
     let dimensions, previewImage, drag; const layerName = `Sketch to Art · ${uuid().slice(0, 8)}`;
     const status = el('small', { role: 'status', text: 'Generate the canvas or a selected region as a new AI layer.' });
     const canvas = el('canvas', { class: 'mm-sketch-preview', width: 320, height: 200, 'aria-label': 'Sketch region preview', 'aria-describedby': 'mm-sketch-region-help', tabIndex: 0 });
@@ -125,9 +131,12 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             if (stopping || disposed) { finish('Generation cancelled.'); return; }
             if (ticket.revision !== revision) { finish('Drawing changed · Waiting for the latest stroke.'); return; }
             ticket.frameRevision = data.revision; ticket.region = region(); const r = ticket.region;
-            const image = await createImageBitmap(data.png), crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
-            crop.getContext('2d').drawImage(image, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height); image.close();
-            const blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
+            let blob = data.png;
+            if (r.x || r.y || r.width !== dimensions.width || r.height !== dimensions.height) {
+                const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
+                crop.getContext('2d').drawImage(previewImage, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+                blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
+            }
             const form = new FormData(); form.append('image', blob, `${ticket.token}.png`); form.append('type', 'temp'); form.append('subfolder', `manga-maker-drawing/${project}`);
             status.textContent = 'Uploading the drawing region…';
             const response = await api.fetchApi('/upload/image', { method: 'POST', body: form }); const uploaded = await response.json();
@@ -137,7 +146,6 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             if (settings.random_seed) settings.seed = Math.floor(Math.random() * 2 ** 48);
             const imagePath = `${uploaded.subfolder ? uploaded.subfolder + '/' : ''}${uploaded.name} [${uploaded.type}]`;
             const built = buildPrompt(studio.defs, 'sketch', 'krea_edit', settings, [imagePath], ticket.token);
-            await studio.flush();
             job = await request(`/projects/${project}/jobs`, { id: ticket.token, operation: 'sketch', engine: 'krea_edit', kind, space: kind,
                 name: 'Sketch to Art', settings: { ...settings, region: r }, prompt: built.graph, output_node: built.outputNode, sources: [] }, 'POST');
             if (studio.project?.id === project) { studio.project.jobs.push(job); studio.jobs(); }
@@ -162,6 +170,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         if (polling) return; polling = true;
         try {
             while (job && !disposed) {
+                completionNotified = false;
                 const current = await request(`/projects/${project}/jobs/${job.id}`);
                 Object.assign(job, current);
                 if (job.state === 'complete') {
@@ -173,7 +182,11 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
                 }
                 if (job.state === 'error' || job.state === 'cancelled') { if (job.state === 'cancelled') pending = false; finish(job.state === 'error' ? `Sketch to Art failed: ${JSON.stringify(job.error)}` : 'Generation cancelled.'); break; }
                 status.textContent = job.state === 'running' ? 'Generating Sketch to Art…' : 'Sketch to Art queued…';
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (!completionNotified) await new Promise(resolve => {
+                    const timeout = setTimeout(done, 1000);
+                    function done() { clearTimeout(timeout); wakePoll = null; resolve(); }
+                    wakePoll = done;
+                });
             }
         } catch (error) { finish(`Sketch to Art failed: ${error.message}`); }
         finally { polling = false; if (job && !active?.applying && !disposed) poll(); }
@@ -199,6 +212,6 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         }
     }
     return { element, handle, get busy() { return !!active; }, dispose() {
-        disposed = true; pending = false; previewImage?.close(); stop();
+        disposed = true; pending = false; abort.abort(); wakePoll?.(); previewImage?.close(); stop();
     } };
 }

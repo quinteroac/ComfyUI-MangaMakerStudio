@@ -255,8 +255,7 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         if (!images.length) throw new Error('Select the original image.');
         latent = add('VAEEncode', { pixels: images[0], vae });
     }
-    const sourceImages = sketch ? images.map(image => add('FluxKontextImageScale', { image })) : images;
-    const sources = kreaEditing ? sourceImages.map(pixels => add('VAEEncode', { pixels, vae })) : [];
+    const sources = kreaEditing ? images.map(pixels => add('VAEEncode', { pixels, vae })) : [];
     const useReferenceLatent = engine === 'krea_edit' && (sketch || config.latent_reference_index != null);
     if (useReferenceLatent) {
         const index = sketch ? 0 : config.latent_reference_index;
@@ -277,7 +276,7 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         model = add('Krea2EditModelPatch', { model, vae, target_latent: latent,
             ...Object.fromEntries(sources.flatMap((source, i) => {
                 const suffix = ['', '_b', '_c', '_d'][i];
-                return [[`source_latent${suffix}`, source], [`source_image${suffix}`, sourceImages[i]]];
+                return [[`source_latent${suffix}`, source], [`source_image${suffix}`, images[i]]];
             })),
             ref_boost: Number(config.ref_boost ?? 1), ref_boost_a: Number(config.ref_boost_a ?? 1), fit_mode: config.fit_mode || 'fit' });
         if (sketch && config.shift !== '' && config.shift != null) {
@@ -298,6 +297,6 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
             cfg: Number(config.cfg), sampler_name: config.sampler, scheduler: config.scheduler, denoise: 1 });
     }
     const decoded = add('VAEDecode', { samples: sampled, vae });
-    const output = add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
+    const output = sketch ? add('PreviewImage', { images: decoded }) : add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
     return { graph, outputNode: output[0] };
 }

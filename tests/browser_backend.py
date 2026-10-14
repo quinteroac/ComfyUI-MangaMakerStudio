@@ -108,7 +108,7 @@ async def main():
             prompt_id = body['prompt_id']
             instance.prompt_queue.pending = [item for item in instance.prompt_queue.pending if item[1] != prompt_id]
             graph = body['prompt']
-            output_id, output = next((node_id, node) for node_id, node in graph.items() if node['class_type'] in ('SaveImage', 'SaveText'))
+            output_id, output = next((node_id, node) for node_id, node in graph.items() if node['class_type'] in ('SaveImage', 'PreviewImage', 'SaveText'))
             if output['class_type'] == 'SaveText':
                 if output['inputs']['filename_prefix'].endswith('/describe'):
                     text = '[TASK: TEXT_TO_IMAGE]\n\n[Subject] A red rectangle.\n\n[Composition] Centered.\n\n[Style] Flat colors.'

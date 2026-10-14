@@ -27,11 +27,10 @@ for (const encoding of ['native', 'bridge']) {
         identity_lora: options(defs, 'LoraLoaderModelOnly', 'lora_name')[2], shift: 1.15, denoise: .3, steps: 1, cfg: 1 };
     const built = buildPrompt(defs, 'sketch', 'krea_edit', cfg, ['sketch.png'], crypto.randomUUID());
     const nodes = Object.values(built.graph), patch = nodes.find(n => n.class_type === 'Krea2EditModelPatch');
-    const scale = nodes.find(n => n.class_type === 'FluxKontextImageScale');
     const sampler = nodes.find(n => n.class_type === 'KSampler');
     const grounded = nodes.find(n => n.class_type === (encoding === 'native' ? 'Krea2EditGroundedEncode' : 'Krea2Qwen8BGroundedEncode'));
-    assert.deepEqual(scale.inputs.image, grounded.inputs.image);
-    assert.equal(built.graph[patch.inputs.source_image[0]].class_type, 'FluxKontextImageScale');
+    assert.deepEqual(patch.inputs.source_image, grounded.inputs.image);
+    assert.equal(built.graph[patch.inputs.source_image[0]].class_type, 'LoadImage');
     assert.deepEqual(built.graph[patch.inputs.source_latent[0]].inputs.pixels, patch.inputs.source_image);
     assert.deepEqual(sampler.inputs.latent_image, patch.inputs.source_latent);
     assert.deepEqual(patch.inputs.target_latent, sampler.inputs.latent_image);
@@ -41,6 +40,7 @@ for (const encoding of ['native', 'bridge']) {
     assert.equal(built.graph[shift.inputs.model[0]].class_type, 'Krea2EditModelPatch');
     assert.equal(nodes.filter(n => n.class_type === 'LoraLoaderModelOnly').length, 2);
     assert(!nodes.some(n => n.class_type === 'EmptyImage' || n.class_type === 'LatentMultiply'));
+    assert.equal(built.graph[built.outputNode].class_type, 'PreviewImage');
     jobs.push({ engine: 'krea_edit', op: 'sketch', count: 1, ...built });
 }
 
@@ -249,6 +249,7 @@ assert.equal(Object.values(analysis.graph).filter(n => n.class_type === 'SaveTex
 assert.throws(() => buildPrompt({}, 'panels', 'krea', configs.krea, [], crypto.randomUUID()), /Missing node/);
 assert.throws(() => buildPrompt(defs, 'panels', 'krea', { ...configs.krea, model: 'missing' }, [], crypto.randomUUID()), /missing or unregistered selection/);
 for (const job of jobs) {
+    assert(!Object.values(job.graph).some(node => node.class_type === 'FluxKontextImageScale'));
     const attention = Object.entries(job.graph).filter(([, node]) => node.class_type === 'ModelAttentionBackend');
     if (job.engine === 'qwen') { assert.equal(attention.length, 0); continue; }
     if (!Object.values(job.graph).some(node => node.class_type === 'UNETLoader')) continue;

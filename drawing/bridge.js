@@ -63,13 +63,29 @@ window.addEventListener('message', async event => {
             const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
             const ctx = crop.getContext('2d'); ctx.drawImage(image, 0, 0, r.width, r.height);
             const pixels = ctx.getImageData(0, 0, r.width, r.height), feather = Math.max(0, Number(data.feather) || 0);
+            let maskPixels, clearMask;
+            if (data.mask instanceof Blob) {
+                const bitmap = await createImageBitmap(data.mask);
+                clearMask = document.createElement('canvas'); clearMask.width = r.width; clearMask.height = r.height;
+                const maskCtx = clearMask.getContext('2d'); maskCtx.drawImage(bitmap, 0, 0, r.width, r.height); bitmap.close();
+                const original = maskCtx.getImageData(0, 0, r.width, r.height);
+                if (feather) {
+                    const softened = document.createElement('canvas'); softened.width = r.width; softened.height = r.height;
+                    const softCtx = softened.getContext('2d'); softCtx.filter = `blur(${feather}px)`; softCtx.drawImage(clearMask, 0, 0);
+                    const blurred = softCtx.getImageData(0, 0, r.width, r.height).data;
+                    for (let i = 3; i < original.data.length; i += 4) original.data[i] *= blurred[i] / 255;
+                    maskCtx.putImageData(original, 0, 0);
+                }
+                maskPixels = original.data;
+            }
             const opacity = Math.max(0, Math.min(1, Number(data.opacity ?? 100) / 100));
             for (let y = 0; y < r.height; y++) for (let x = 0; x < r.width; x++) {
                 const edge = feather ? Math.min(1, (x + 0.5) / feather, (r.width - x - 0.5) / feather, (y + 0.5) / feather, (r.height - y - 0.5) / feather) : 1;
-                pixels.data[(y * r.width + x) * 4 + 3] *= edge * opacity;
+                const index = (y * r.width + x) * 4 + 3;
+                pixels.data[index] *= (maskPixels ? maskPixels[index] / 255 : edge) * opacity;
             }
             ctx.putImageData(pixels, 0, 0);
-            editor.applyLayer({ name: data.layerName, image: crop, region: r });
+            editor.applyLayer({ name: data.layerName, image: crop, region: r, mask: clearMask });
             send('manga-drawing-changed', { source: 'ai' }); send('manga-drawing-art-applied', { token: data.token });
         } catch (error) { send('manga-drawing-ai-error', { token: data.token, error: error.message || String(error) }); }
         finally { saving = false; document.documentElement.inert = false; }

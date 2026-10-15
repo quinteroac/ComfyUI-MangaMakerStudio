@@ -37,7 +37,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     const generate = button('Generate Sketch to Art', () => start(), { class: 'mm-primary', disabled: true });
     const cancel = button('Cancel generation', () => stop(), { disabled: true });
     const preview = button('Update region preview', () => { if (!active) send('manga-drawing-snapshot', { token: 'preview' }); }, { disabled: true });
-    const regionMode = el('select', { 'aria-label': 'Drawing area', onchange: event => { cfg.region_mode = event.target.value; changed(); paintPreview(); } },
+    const regionMode = el('select', { 'aria-label': 'Drawing area', onchange: event => { cfg.region_mode = event.target.value; if (cfg.region_mode === 'canvas') resetMaskMode(); changed(); paintPreview(); } },
         el('option', { value: 'canvas', text: 'Whole canvas' }), el('option', { value: 'region', text: 'Selected region' })); regionMode.value = cfg.region_mode || 'canvas';
     const coordinates = el('div', { class: 'mm-sketch-coordinates' }); const inputs = {};
     for (const [key, label] of [['x', 'X'], ['y', 'Y'], ['width', 'Region width'], ['height', 'Region height']]) {
@@ -45,6 +45,17 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             cfg.region ||= {}; cfg.region[key] = Number(inputs[key].value); changed(); paintPreview();
         } }); coordinates.append(field(label, inputs[key]));
     }
+    const maskCanvas = document.createElement('canvas');
+    const maskEnabled = el('input', { type: 'checkbox', 'aria-label': 'Use stitch mask', onchange: () => { changed(); paintPreview(); } });
+    const maskTool = el('select', { 'aria-label': 'Preview tool' },
+        el('option', { value: 'region', text: 'Select region' }), el('option', { value: 'paint', text: 'Paint mask' }), el('option', { value: 'erase', text: 'Erase mask' }));
+    const maskSize = el('input', { type: 'number', 'aria-label': 'Mask brush size · px', value: 48, min: 1, step: 1 });
+    const cropMask = el('input', { type: 'checkbox', checked: true, 'aria-label': 'Crop to mask bounds' });
+    const maskControls = el('details', {}, el('summary', { text: 'Crop and stitch mask' }),
+        el('small', { text: 'Paint on the preview to mark areas to replace. Erase protects areas. The mask controls stitching, not model conditioning. Masks stay in this editor session.' }),
+        field('Use stitch mask', maskEnabled), field('Preview tool', maskTool), field('Mask brush size · px', maskSize), field('Crop to mask bounds', cropMask),
+        button('Clear mask', () => { maskCanvas.getContext('2d').clearRect(0, 0, maskCanvas.width, maskCanvas.height); resetMaskMode(); changed(); paintPreview(); }));
+    function resetMaskMode() { maskEnabled.checked = false; maskTool.value = 'region'; }
     const presets = el('div', { class: 'mm-row' });
     const blend = el('details');
     const prompt = el('details');
@@ -54,6 +65,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     function renderSettings() {
         presets.replaceChildren(); studio.presets(presets, scope, cfg, {}, () => { revision++; renderSettings(); paintPreview(); });
         regionMode.value = cfg.region_mode || 'canvas';
+        if (regionMode.value === 'canvas') resetMaskMode();
         for (const key of Object.keys(inputs)) inputs[key].value = cfg.region?.[key] ?? 0;
         blend.replaceChildren(el('summary', { text: 'Layer blending' }));
         for (const [key, label] of [['feather', 'Edge feather · px'], ['blend_opacity', 'Blend opacity · %']]) blend.append(field(label,
@@ -65,7 +77,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         renderModels();
     }
     const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, el('h3', { text: 'Sketch to Art' }), presets,
-        field('Drawing area', regionMode), el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, blend, prompt, sampling, models,
+        field('Drawing area', regionMode), el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, blend, prompt, sampling, models,
         field('Realtime on stroke release', realtime), el('div', { class: 'mm-toolbar' }, generate, cancel), status);
     renderSettings();
     function update() { generate.disabled = !ready || !!active; preview.disabled = !ready || !!active; cancel.disabled = !active || stopping; busyChanged(); }
@@ -83,6 +95,9 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         if (!previewImage) return;
         send('manga-drawing-guide-region', { region: cfg.region_mode === 'region' ? region() : null });
         const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(previewImage, 0, 0, canvas.width, canvas.height);
+        if (maskEnabled.checked) {
+            ctx.save(); ctx.globalAlpha = 0.35; ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height); ctx.restore();
+        }
         if (cfg.region_mode === 'region') {
             const r = region(), scale = canvas.width / dimensions.width;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
@@ -95,18 +110,45 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         return { x: Math.round(Math.max(0, Math.min(1, (event.clientX - box.left - canvas.clientLeft) / canvas.clientWidth)) * dimensions.width),
             y: Math.round(Math.max(0, Math.min(1, (event.clientY - box.top - canvas.clientTop) / canvas.clientHeight)) * dimensions.height) };
     };
+    function paintMask(start, end) {
+        const ctx = maskCanvas.getContext('2d');
+        ctx.save(); ctx.globalCompositeOperation = maskTool.value === 'erase' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = '#ff4fb8'; ctx.fillStyle = '#ff4fb8'; ctx.lineWidth = Math.max(1, Number(maskSize.value) || 1);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+        ctx.beginPath(); ctx.arc(end.x, end.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    function fitMaskRegion() {
+        if (!maskEnabled.checked || !cropMask.checked) return;
+        const pixels = maskCanvas.getContext('2d').getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+        let left = dimensions.width, top = dimensions.height, right = -1, bottom = -1;
+        for (let y = 0; y < dimensions.height; y++) for (let x = 0; x < dimensions.width; x++) {
+            if (!pixels[(y * dimensions.width + x) * 4 + 3]) continue;
+            left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
+        }
+        if (right < 0) return;
+        cfg.region = { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+        cfg.region_mode = 'region'; regionMode.value = 'region';
+        for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key];
+    }
     canvas.addEventListener('pointerdown', event => {
         if (!dimensions || active || event.button !== 0) return;
-        event.preventDefault();
-        drag = position(event); canvas.setPointerCapture(event.pointerId); cfg.region_mode = 'region'; regionMode.value = 'region';
+        event.preventDefault(); drag = position(event); canvas.setPointerCapture(event.pointerId);
+        if (maskTool.value === 'region') { cfg.region_mode = 'region'; regionMode.value = 'region'; }
+        else { maskEnabled.checked = true; paintMask(drag, drag); paintPreview(); }
     });
     canvas.addEventListener('pointermove', event => {
         if (!drag) return;
-        const end = position(event); cfg.region = { x: Math.min(drag.x, end.x), y: Math.min(drag.y, end.y), width: Math.abs(end.x - drag.x), height: Math.abs(end.y - drag.y) };
-        for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key]; paintPreview();
+        const end = position(event);
+        if (maskTool.value === 'region') {
+            cfg.region = { x: Math.min(drag.x, end.x), y: Math.min(drag.y, end.y), width: Math.abs(end.x - drag.x), height: Math.abs(end.y - drag.y) };
+            for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key];
+        } else { paintMask(drag, end); drag = end; }
+        paintPreview();
     });
-    canvas.addEventListener('pointerup', () => { if (drag) { drag = null; changed(); paintPreview(); } });
-    canvas.addEventListener('pointercancel', () => { drag = null; });
+    const endDrag = () => { if (drag) { drag = null; if (maskTool.value !== 'region') fitMaskRegion(); changed(); paintPreview(); } };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
     function finish(message) {
         if (active) request(`/projects/${project}/drawing-inputs/${active.token}`, undefined, 'DELETE').catch(error => studio.fail(error));
         active = null; job = null; stopping = false; status.textContent = message; update();
@@ -130,12 +172,18 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             if (!ticket || data.token !== ticket.token) return;
             if (stopping || disposed) { finish('Generation cancelled.'); return; }
             if (ticket.revision !== revision) { finish('Drawing changed · Waiting for the latest stroke.'); return; }
+            fitMaskRegion();
             ticket.frameRevision = data.revision; ticket.region = region(); const r = ticket.region;
             let blob = data.png;
             if (r.x || r.y || r.width !== dimensions.width || r.height !== dimensions.height) {
                 const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
                 crop.getContext('2d').drawImage(previewImage, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
                 blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
+            }
+            if (maskEnabled.checked) {
+                const mask = document.createElement('canvas'); mask.width = r.width; mask.height = r.height;
+                mask.getContext('2d').drawImage(maskCanvas, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+                ticket.mask = await new Promise(resolve => mask.toBlob(resolve, 'image/png'));
             }
             const form = new FormData(); form.append('image', blob, `${ticket.token}.png`); form.append('type', 'temp'); form.append('subfolder', `manga-maker-drawing/${project}`);
             status.textContent = 'Uploading the drawing region…';
@@ -178,7 +226,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
                     if (active.revision !== revision) { finish('Skipped an older result · Latest drawing preserved.'); break; }
                     status.textContent = 'Blending the result into a new layer…'; active.applying = true;
                     send('manga-drawing-apply-art', { token: active.token, imageUrl: api.apiURL('/view?' + new URLSearchParams(job.drawing_output)),
-                        region: active.region, layerName, revision: active.frameRevision, feather: active.settings.feather, opacity: active.settings.blend_opacity }); break;
+                        region: active.region, mask: active.mask, layerName, revision: active.frameRevision, feather: active.settings.feather, opacity: active.settings.blend_opacity }); break;
                 }
                 if (job.state === 'error' || job.state === 'cancelled') { if (job.state === 'cancelled') pending = false; finish(job.state === 'error' ? `Sketch to Art failed: ${JSON.stringify(job.error)}` : 'Generation cancelled.'); break; }
                 status.textContent = job.state === 'running' ? 'Generating Sketch to Art…' : 'Sketch to Art queued…';
@@ -198,6 +246,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         else if (data.type === 'manga-drawing-snapshot-result') {
             if (!(data.png instanceof Blob)) return;
             const image = await createImageBitmap(data.png); if (disposed) { image.close(); return; } dimensions = { width: image.width, height: image.height };
+            if (maskCanvas.width !== image.width || maskCanvas.height !== image.height) { maskCanvas.width = image.width; maskCanvas.height = image.height; maskEnabled.checked = false; }
             previewImage?.close(); previewImage = image; canvas.width = Math.max(1, Math.min(320, Math.round(220 * dimensions.width / dimensions.height))); canvas.height = Math.max(1, Math.round(canvas.width * dimensions.height / dimensions.width));
             if (!cfg.region) cfg.region = { x: 0, y: 0, ...dimensions };
             for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key]; paintPreview();

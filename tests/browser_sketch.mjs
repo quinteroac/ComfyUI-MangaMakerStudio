@@ -234,6 +234,57 @@ try {
         const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0); image.close(); return [...ctx.getImageData(0, 0, 1, 1).data];
     });
     assert.deepEqual(opacityPixel, [224, 235, 229, 255]);
+    const drawingPixels = () => frame.evaluate(async () => {
+        const image = await createImageBitmap(await editor.getPNG()), canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0); image.close(); return [...ctx.getImageData(0, 0, canvas.width, canvas.height).data];
+    });
+    const beforeMask = await drawingPixels();
+    await controls.getByLabel('Blend opacity · %', { exact: true }).fill('100'); await controls.getByLabel('Blend opacity · %', { exact: true }).press('Tab');
+    await controls.locator('summary').filter({ hasText: /^Crop and stitch mask$/ }).click();
+    await controls.getByLabel('Preview tool', { exact: true }).selectOption('paint');
+    await controls.getByLabel('Mask brush size · px', { exact: true }).fill('64');
+    const maskStroke = async (from, to) => {
+        await regionPreview.scrollIntoViewIfNeeded();
+        const box = await regionPreview.boundingBox();
+        const point = ([x, y]) => ({ x: box.x + previewBorder + x / 256 * (box.width - 2 * previewBorder), y: box.y + previewBorder + y / 256 * (box.height - 2 * previewBorder) });
+        const start = point(from), end = point(to);
+        await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y, { steps: 10 }); await page.mouse.up();
+    };
+    await maskStroke([64, 96], [192, 96]);
+    assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), true);
+    await controls.getByLabel('Preview tool', { exact: true }).selectOption('erase');
+    await controls.getByLabel('Mask brush size · px', { exact: true }).fill('32');
+    await maskStroke([128, 96], [128, 96]);
+    assert.equal(await controls.getByLabel('Drawing area', { exact: true }).inputValue(), 'region');
+    await controls.getByRole('button', { name: 'Generate Sketch to Art', exact: true }).click();
+    await controls.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+    assert.equal(queued.length, 6);
+    assert(uploads.at(-1).width < 256 && uploads.at(-1).height < 256, 'Crop follows mask bounds');
+    const afterMask = await drawingPixels();
+    const pixelAt = (pixels, x, y) => pixels.slice((y * 256 + x) * 4, (y * 256 + x) * 4 + 4);
+    assert.deepEqual(pixelAt(afterMask, 64, 96), [193, 216, 203, 255]);
+    for (const [x, y] of [[0, 0], [128, 96], [32, 64], [255, 255]]) assert.deepEqual(pixelAt(afterMask, x, y), pixelAt(beforeMask, x, y), 'Outside mask and erased holes preserve existing AI pixels');
+    await dialog.locator('iframe').focus(); await page.keyboard.press('Control+z'); assert.deepEqual(await drawingPixels(), beforeMask);
+    await page.keyboard.press('Control+y'); assert.deepEqual(await drawingPixels(), afterMask);
+    await controls.getByLabel('Edge feather · px', { exact: true }).fill('8'); await controls.getByLabel('Edge feather · px', { exact: true }).press('Tab');
+    await controls.getByRole('button', { name: 'Generate Sketch to Art', exact: true }).click();
+    await controls.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+    const featheredMask = await drawingPixels();
+    assert.deepEqual(pixelAt(featheredMask, 128, 96), pixelAt(beforeMask, 128, 96), 'Mask feather does not bleed into protected holes');
+    assert.equal(await frame.evaluate(async () => (await editor.readPSD(await (await editor.getPSD()).arrayBuffer())).layers.length), 3);
+    await controls.getByLabel('Drawing area', { exact: true }).selectOption('canvas');
+    assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), false, 'Whole canvas disables the previous regional mask');
+    assert.equal(await controls.getByLabel('Preview tool', { exact: true }).inputValue(), 'region');
+    await controls.getByLabel('Edge feather · px', { exact: true }).fill('0'); await controls.getByLabel('Edge feather · px', { exact: true }).press('Tab');
+    await controls.getByRole('button', { name: 'Generate Sketch to Art', exact: true }).click();
+    await controls.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+    assert.equal(uploads.at(-1).width, 256); assert.equal(uploads.at(-1).height, 256);
+    assert.equal(await controls.getByLabel('Drawing area', { exact: true }).inputValue(), 'canvas', 'Mask bounds must not switch back to regional inference');
+    const wholeAfterMask = await drawingPixels();
+    assert.deepEqual(pixelAt(wholeAfterMask, 0, 0), [193, 216, 203, 255], 'Full-canvas generation visibly replaces previously protected areas');
+    await controls.getByLabel('Use stitch mask', { exact: true }).check();
+    await controls.getByRole('button', { name: 'Clear mask', exact: true }).click();
+    assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), false, 'Clearing the mask cannot leave an invisible stitch enabled');
     await dialog.getByRole('button', { name: 'Save to project', exact: true }).click();
     await dialog.getByText('Saved to project · Layers preserved', { exact: true }).waitFor();
     const saved = await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json();
@@ -243,7 +294,7 @@ try {
     const graphAfter = await page.evaluate(() => window.comfyAPI.app.app.graph.serialize());
     delete graphBefore.extra.k2cf_state_id; delete graphAfter.extra.k2cf_state_id; assert.deepEqual(graphAfter, graphBefore);
     assert.deepEqual(errors, []);
-    console.log('Sketch to Art passed: whole-canvas/region pixels, feather and 50% opacity, editable reused layer with native undo/redo, sampler settings, release-only pen realtime, one job at a time, stale result skipped, targeted cancel, layered save and unchanged Comfy graph.');
+    console.log('Sketch to Art passed: mask crop/stitch, protected holes, repeated masked layer updates and native undo,  whole-canvas/region pixels, feather and 50% opacity, editable reused layer with native undo/redo, sampler settings, release-only pen realtime, one job at a time, stale result skipped, targeted cancel, layered save and unchanged Comfy graph.');
 } catch (error) {
     await page.screenshot({ path: '/tmp/manga-sketch-error.png' }); console.error((await page.locator('.mm-studio').innerText().catch(() => 'Studio closed')).slice(-9000), errors); throw error;
 } finally {

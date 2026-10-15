@@ -1,8 +1,9 @@
 # Validation — October 14, 2026
 
-- **85 API graphs and installed schemas passed**, including native/bridge Sketch to Art source scaling, shared source/target/sampler latent, effective denoise, LoRA order and Shift after the source patch.
+- **85 API graphs and installed schemas passed**, including native/bridge Sketch to Art without automatic source scaling, shared source/target/sampler latent, effective denoise, LoRA order and Shift after the source patch.
 - **13 Python tests passed**, including Sketch result ownership without importing a project asset for every crop, cleanup of temporary input images and project-scoped job queries.
 - **Klecks Sketch browser checks:** actual native pen events, one job at a time, no inference submission until stroke completion, combining later strokes, skipping stale output, editable reused layer, native undo/redo, unchanged pixels outside the region, configurable feather/opacity, targeted cancellation and layered saving. The frontend and compiled Klecks are real; inference and uploads use isolated temporary storage and a simulated queue. No production prompts, real weights or actual inference are used.
+- **Mask crop/stitch browser checks passed:** mouse-painted mask, erased protected hole, bounding-box crop, inward feather without bleeding into the hole, preserved previous AI layer pixels outside the mask, reused layer count, native undo/redo and layered save. Generation uses the simulated queue.
 - The existing ComfyUI graph remains unchanged. Klecks was rebuilt from the recorded upstream revision with `drawing/klecks-sketch.patch`; the patch uses native canvas/history operations through public embed methods, rather than reopening the project to apply an AI layer.
 
 ## Previous validation — October 13, 2026

@@ -1,5 +1,5 @@
 diff --git a/src/app/script/app/kl-app.ts b/src/app/script/app/kl-app.ts
-index bea10c1..a2aeeb9 100644
+index bea10c1..2639a33 100644
 --- a/src/app/script/app/kl-app.ts
 +++ b/src/app/script/app/kl-app.ts
 @@ -11,6 +11,7 @@ import {
@@ -53,7 +53,7 @@ index bea10c1..a2aeeb9 100644
              }
              if (event.type === 'line') {
                  currentBrushUi.getBrush().drawLineSegment(event.x0, event.y0, event.x1, event.y1);
-@@ -2327,6 +2334,34 @@ export class KlApp {
+@@ -2327,6 +2334,40 @@ export class KlApp {
              });
          }
          this.saveReminder?.init();
@@ -69,7 +69,13 @@ index bea10c1..a2aeeb9 100644
 +                ctx.setTransform(1, 0, 0, 1, 0, 0);
 +                ctx.globalAlpha = 1;
 +                ctx.globalCompositeOperation = 'source-over';
-+                ctx.clearRect(r.x, r.y, r.width, r.height);
++                if (layer.mask) {
++                    ctx.globalCompositeOperation = 'destination-out';
++                    ctx.drawImage(layer.mask, r.x, r.y);
++                    ctx.globalCompositeOperation = 'source-over';
++                } else {
++                    ctx.clearRect(r.x, r.y, r.width, r.height);
++                }
 +                ctx.drawImage(layer.image, r.x, r.y);
 +                ctx.restore();
 +            };
@@ -88,7 +94,7 @@ index bea10c1..a2aeeb9 100644
      }
  
      // -------- interface --------
-@@ -2369,6 +2404,14 @@ export class KlApp {
+@@ -2369,6 +2410,14 @@ export class KlApp {
          return await klCanvasToPsdBlob(this.klCanvas, false);
      };
  
@@ -138,15 +144,16 @@ index 5d1d41c..6576683 100644
          if (this.embed) {
              this.embed.openProject(project);
 diff --git a/src/app/script/klecks/kl-types.ts b/src/app/script/klecks/kl-types.ts
-index b59ad5e..62b6b85 100644
+index b59ad5e..7b27b20 100644
 --- a/src/app/script/klecks/kl-types.ts
 +++ b/src/app/script/klecks/kl-types.ts
-@@ -324,3 +324,9 @@ export type TFillSampling = 'current' | 'all' | 'above';
+@@ -324,3 +324,10 @@ export type TFillSampling = 'current' | 'all' | 'above';
  export type TUiLayout = 'left' | 'right';
  export type TExportType = 'png' | 'jpg' | 'layers' | 'psd';
  export type TInterpolationAlgorithm = 'smooth' | 'pixelated';
 +
 +export type TKlLayerUpdate = {
++    mask?: HTMLCanvasElement;
 +    name: string;
 +    image: HTMLCanvasElement;
 +    region: { x: number; y: number; width: number; height: number };

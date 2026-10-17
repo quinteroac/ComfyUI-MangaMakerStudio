@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manga Maker Studio Setup"
+  short_description: "Install and configure Manga Maker Studio with an agent"
+  default_prompt: "Use $manga-maker-setup to install and configure Manga Maker Studio for the features I need."

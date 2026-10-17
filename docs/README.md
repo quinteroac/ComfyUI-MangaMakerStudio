@@ -7,6 +7,7 @@ These guides explain how the workspace is organized, which settings affect each 
 | Guide | What it covers |
 | --- | --- |
 | [Installation and dependencies](installation.md) | Installing Studio, required custom nodes, optional features and weights |
+| [Agent-assisted setup](agent-setup.md) | The setup skill, example requests, agent access and verification |
 | [Configuration](configuration.md) | Global models, per-operation overrides, presets, text/vision settings and output size |
 | [Using Studio](usage.md) | References, panels, image actions, refinement and finishing |
 | [Drawing and manga conversion](drawing.md) | Klecks, Sketch to Art, Art to Manga Panel, regions, masks and layered saving |

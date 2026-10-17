@@ -2,6 +2,8 @@
 
 [Documentation](README.md) · [Project README](../README.md)
 
+Prefer to use an agent? The included [setup skill and agent guide](agent-setup.md) support feature-specific installation and configuration.
+
 ## Installing the plugin
 
 Clone the plugin into an existing ComfyUI installation:

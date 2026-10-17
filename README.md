@@ -1,12 +1,12 @@
 # Manga Maker Studio
 
-**Version:** 0.1.0-alpha.
+**Version:** 0.1.1-alpha.
 
 Manga Maker Studio extends ComfyUI with a workspace for creating manga, from character and environment references to generated panels, page layouts and final refinements. Organize assets in projects, generate and edit images with Krea2 or Qwen, draw with Klecks, and compose pages with custom panel shapes, dialogue and thought bubbles. Open it from the **Manga Maker Studio** sidebar entry or the **Manga Maker** menu while keeping your existing ComfyUI graph intact.
 
 ## Getting started
 
-The package lives in `custom_nodes/ComfyUI-MangaMakerStudio`. When there are no active jobs, restart ComfyUI and reload the browser. No additional dependencies need to be installed: it uses aiohttp and Pillow included with ComfyUI, and Klecks is bundled as a compiled build. It does not modify ComfyUI core. Weights are downloaded from Hugging Face only when you click **Download missing official weights**; opening the Studio or checking models does not initiate external connections.
+The package lives in `custom_nodes/ComfyUI-MangaMakerStudio`. When there are no active jobs, restart ComfyUI and reload the browser. Project management, page layout and drawing use aiohttp and Pillow included with ComfyUI, plus a bundled Klecks build. Generation and image conversion require the node packages and model weights listed under [Node dependencies](#node-dependencies); install only those needed for the features you use. It does not modify ComfyUI core. Studio's guided weight downloads from Hugging Face start only when you click **Download missing official weights**; opening the Studio or checking models does not initiate external connections.
 
 1. Create a project from **Projects**.
 2. For each operation, select the model, encoder, loading type and VAE in **Models and advanced settings**. Options come from installed nodes and paths registered with ComfyUI. **Refresh lists** lets you select resources again after moving them.
@@ -36,7 +36,7 @@ The six bundled **References** presets (Character, Expressions, Poses, Clothing,
 
 Choose **Manga-Lite** for Manga Levels → Manga Finish → Manga Panel without an edit model, or **QWEN-Manga** for Qwen Image 2.1 Turbo editing followed by Manga Finish and Manga Panel. Both use the [ComfyUI-MangaScreen workflows](https://github.com/ashukae/ComfyUI-MangaScreen), with their 2 MP working resolution, 250 screen lines and panel defaults. QWEN-Manga uses the upstream eight-step sigma schedule and editable instruction; select a compatible Turbo model, encoder and VAE under Models and advanced settings. Manga settings and presets are saved separately for references and panels. Screentones, levels, crop, frame, paper and ink are editable. **Extract pen lines** is optional and disabled initially; enable it to reproduce the workflow's Manga Lineart pass.
 
-Install **ComfyUI-MangaScreen** (`opencv-python`, `numpy`), restart ComfyUI when no jobs are active and refresh lists. Pen extraction additionally needs **comfyui_controlnet_aux** and its Manga Lineart weights. Models and lineart weights must be installed separately. The editor does not download them automatically. Manga generation runs on demand.
+Install **ComfyUI-MangaScreen** (`opencv-python`, `numpy`), restart ComfyUI when no jobs are active and refresh lists. Pen extraction additionally needs **comfyui_controlnet_aux** and its Manga Lineart weights. Models and lineart weights must be installed separately. The editor does not automatically download manga models. When pen extraction is explicitly enabled and run, `comfyui_controlnet_aux` may download its missing annotator weights on first use; install them in advance for offline use. Manga generation runs on demand.
 
 Sketch parameters and prompt/settings presets are stored separately for reference and panel drawings in the project. The preset controls at the top of Sketch to Art let you save, load, clone, import and export the structured/free prompt, sampling settings, model overrides, LoRAs, generation region and blending settings without closing Klecks. Editing a selected preset marks it Modified; saving updates it explicitly. Unspecified model settings inherit the global Krea2 Edit configuration. Realtime remains a session toggle and is not enabled by loading a preset. Models, encoder and VAE inherit the global Krea2 Edit configuration and can be overridden in **Models and advanced settings**. The structured prompt, denoise, steps, CFG, seed, sampler, scheduler, Shift, reference fit/fidelity, grounding and LoRA order/strengths are editable. The included graph follows `krea-2-sketch-2-art-workflow-final`: original crop directly into grounded encoding and VAE encoding, without automatic resolution scaling; the same latent for the source patch, target and sampler; Shift after the patch. Defaults are 1 step, CFG 1, Euler, Simple, denoise 0.3, Shift 1.15 and grounding 0. The initial additional LoRAs are `krea2_turbo_2step_rank_64_lora_comfyui.safetensors`, then `sketch_krea_2_identity_edit_r64_512_continue_8000.safetensors`, at strength 1. Select installed copies or install these weights manually; they are not automatically downloaded. The regular global Identity Edit LoRA is not added to this sketch graph. Native and 8B bridge paths are supported. No external workflow file, SimpleText or ImageConcatMulti node is required at runtime.
 
@@ -60,18 +60,34 @@ Size is selected through **Aspect ratio** and **Resolution · MP** (1 MP = 1,000
 
 ## Node dependencies
 
-Managing projects, importing images, editing pages and exporting them requires no additional node packages. PanelComposer is optional for importing its presets; the Studio has its own editor.
+Managing projects, importing images, drawing with Klecks, editing pages and exporting them requires no additional node packages. Install the following packages under `ComfyUI/custom_nodes` for the relevant generation or conversion features. Model weights are separate from node packages.
 
 | Feature | Dependencies |
 | --- | --- |
 | Qwen: generation, editing and finishing | ComfyUI with the native `TextEncodeQwenImage21` node. `QwenImage21Cache` is optional and used when available. |
-| Krea2 with bridge | `ComfyUI-Krea2-Qwen8B` package: `Krea2Qwen8BEncode` and `Krea2Qwen8BAdapter`. |
-| Native Krea2 Edit and visual references | `comfyui-krea2edit` package: `Krea2EditModelPatch` and `Krea2EditGroundedEncode`, with a `krea2` encoder and vision weights. |
-| Krea2 Edit with 8B bridge | `Krea2EditModelPatch` from `comfyui-krea2edit`; `Krea2Qwen8BGroundedEncode` and `Krea2Qwen8BAdapter` from `ComfyUI-Krea2-Qwen8B`. Qwen3-VL 8B encoder with vision and loading type `stable_diffusion`. |
+| Krea2 with bridge | `ComfyUI-Krea2-Qwen8B` (separately supplied local package): `Krea2Qwen8BEncode` and `Krea2Qwen8BAdapter`. |
+| Native Krea2 Edit and visual references | [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit): `Krea2EditModelPatch` and `Krea2EditGroundedEncode`, with a `krea2` encoder and vision weights. |
+| Krea2 Edit with 8B bridge | `Krea2EditModelPatch` from [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit); `Krea2Qwen8BGroundedEncode` and `Krea2Qwen8BAdapter` from `ComfyUI-Krea2-Qwen8B`. Qwen3-VL 8B encoder with vision and loading type `stable_diffusion`. |
 | Native Krea2 | ComfyUI with `krea2` encoder support in `CLIPLoader`; the bridge package is not required. |
 | Sketch to Art in Klecks | The native Krea2 Edit package, or its bridge dependencies listed above; native VAE, sampling and image nodes. Sketch/Turbo LoRA weights are selected separately. |
+| Art to Manga Panel · Manga-Lite | [ComfyUI-MangaScreen](https://github.com/ashukae/ComfyUI-MangaScreen): `MangaLevels`, `MangaFinish` and `MangaPanel`. Requires `opencv-python` and `numpy`; no diffusion model is needed. |
+| Art to Manga Panel · QWEN-Manga | [ComfyUI-MangaScreen](https://github.com/ashukae/ComfyUI-MangaScreen): `MangaFinish` and `MangaPanel`; native ComfyUI `TextEncodeQwenImage21`, `ManualSigmas` and sampling nodes; compatible Qwen Image 2.1 Turbo model, encoder and VAE. `QwenImage21Cache` is optional. |
+| Art to Manga Panel · Extract pen lines | [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux): `Manga2Anime_LineArt_Preprocessor` and its Manga Lineart weights. Optional in both manga workflows and disabled initially. |
+| Importing PanelComposer presets | [ComfyUI-PanelComposer](https://github.com/INuBq8/ComfyUI-PanelComposer), optional for discovering its installed presets. Studio renders and exports layouts with its own editor. |
 | Page analysis | Native `TextGenerate` and `SaveText` nodes, plus `CLIPLoader`. |
 | Enhancing fields and creating reference prompts | Native `TextGenerate`, `SaveText` and `CLIPLoader` nodes; uses the CLIP configured in the global text generator. Reference analysis requires an encoder with vision. |
+
+For **Art to Manga Panel**, install MangaScreen and its Python requirements in the same Python environment that runs ComfyUI:
+
+```sh
+# Run from your ComfyUI directory:
+git clone https://github.com/ashukae/ComfyUI-MangaScreen.git custom_nodes/ComfyUI-MangaScreen
+python -m pip install -r custom_nodes/ComfyUI-MangaScreen/requirements.txt
+```
+
+For **Krea2 Edit** and **Sketch to Art**, install [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit#installation) and its compatible weights. For optional pen extraction, follow the [ControlNet Auxiliary Preprocessors installation instructions](https://github.com/Fannovel16/comfyui_controlnet_aux#installation). Use the Python executable of your ComfyUI environment, including its embedded Python when applicable. Restart ComfyUI when no jobs are active, reload the browser and use **Refresh lists**.
+
+The optional `ComfyUI-Krea2-Qwen8B` bridge is a separately supplied local package; it is not bundled or installed by Manga Maker Studio. It also needs its trained bridge weights. The native Krea2/Krea2 Edit paths use their native encoder and do not require this bridge. The upstream MangaScreen comparison node and the original workflows' utility nodes are not required by Studio's built-in graphs.
 
 Generation also uses ComfyUI's standard loading, sampling, VAE and image nodes; LoRAs use `LoraLoader`, or `LoraLoaderModelOnly` for Krea2 Edit. The AR/MP selector creates an empty latent through the selected VAE; it does not require YAP-Utilities' `IllustriousAspectRatio`. All Krea2 and Krea2 Edit image flows, including Sketch to Art and refinement, use the native `ModelAttentionBackend` node before the sampling/edit patches. The default is `comfy kitchen attention`, matching the Sketch to Art workflow; installations that do not expose it use `pytorch attention`. Select another backend in global model settings or an individual preset to override it. Qwen adds this node only when an explicit backend is selected. If a node is missing, the operation reports its name; other features remain available. After installing or enabling a package, restart ComfyUI when no jobs are active and use **Refresh lists**.
 
@@ -124,6 +140,22 @@ Rectangular and polygonal panels without the workflow's panel-count limit. Edita
 The canvas uses the same renderer for preview and export, with stored geometry and framing. PanelComposer presets are reused and copied into the project; the Studio's interactive renderer allows individual framing that the installed compositor does not expose. Exported layouts are stored as JSON.
 
 Editor shortcuts: **Delete**, **Ctrl/Cmd Z**, **Ctrl/Cmd Y** or **Ctrl/Cmd Shift Z**, **Enter** to close a polygon, **Esc** to cancel, and **Ctrl + mouse wheel** to zoom. Typing in fields is not intercepted. Drags form a single undo operation. Galleries show up to 48 thumbnails per page.
+
+## Credits and attribution
+
+Manga Maker Studio integrates the following projects and workflows. Credit belongs to their authors and contributors; linked projects and model weights retain their respective licenses.
+
+| Project / authors | Contribution used by Studio |
+| --- | --- |
+| [ComfyUI](https://github.com/Comfy-Org/ComfyUI), [ComfyUI frontend](https://github.com/Comfy-Org/ComfyUI_frontend) and their contributors | Execution server, model loading, native nodes, queue/history APIs and the extension interface. |
+| [Klecks — bitbof](https://github.com/bitbof/klecks) | Bundled painting editor, brushes, layers, PSD support and native history. The embed is locally patched for Studio integration. Its [MIT license](drawing/klecks/LICENSE.txt), dependency/font credits and [upstream revision/build record](drawing/klecks/UPSTREAM.json) are included in the repository. |
+| [ComfyUI-MangaScreen — ashukae](https://github.com/ashukae/ComfyUI-MangaScreen) | Manga Levels, Manga Finish and Manga Panel; the [Manga-Lite](https://github.com/ashukae/ComfyUI-MangaScreen/blob/main/workflows/Manga-Lite.json) and [QWEN-Manga](https://github.com/ashukae/ComfyUI-MangaScreen/blob/main/workflows/QWEN-Manga.json) pipelines adapted for Art to Manga Panel. MangaScreen is a separate MIT-licensed dependency. |
+| [comfyui-krea2edit — lbouaraba / conradlocke](https://github.com/lbouaraba/comfyui-krea2edit) and [Krea2 Identity Edit](https://huggingface.co/conradlocke/krea2-identity-edit) | Grounded encoding and the source-latent patch used for Krea2 editing and Sketch to Art; the compatible Identity Edit LoRA used by the regular Krea2 Edit configuration. |
+| [ControlNet Auxiliary Preprocessors — Fannovel16 and contributors](https://github.com/Fannovel16/comfyui_controlnet_aux) | Optional Manga Lineart extraction via `Manga2Anime_LineArt_Preprocessor`, based on Li et al., *Deep Extraction of Manga Structural Lines*, SIGGRAPH 2017. |
+| [ComfyUI-PanelComposer — INuBq8](https://github.com/INuBq8/ComfyUI-PanelComposer) | Compatible panel-layout presets imported by Studio's page editor. |
+| [Krea 2 — Krea AI](https://github.com/krea-ai/krea-2), [Qwen-Image — Qwen team](https://github.com/QwenLM/Qwen-Image) and [Comfy-Org workflow templates](https://github.com/Comfy-Org/workflow_templates) | Model families and official generation/editing workflow references. The exact downloadable weight sources and sampling references are listed under [Global configuration and downloads](#global-configuration-and-downloads). |
+
+Klecks also bundles third-party libraries and fonts; their upstream notices are preserved in `drawing/klecks/`. Custom node packages and model weights are installed separately and are not relicensed by this project.
 
 ## Validation
 

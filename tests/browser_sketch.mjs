@@ -11,12 +11,13 @@ const root = path.resolve(import.meta.dirname, '..');
 const fixture = spawn(process.argv[3], [path.join(root, 'tests/browser_backend.py')], { stdio: ['ignore', 'pipe', 'pipe'] });
 fixture.stderr.on('data', b => process.stderr.write(b));
 const [chunk] = await once(fixture.stdout, 'data'), backend = JSON.parse(chunk.toString());
-const defs = JSON.parse(await fs.readFile('/tmp/manga-object-info.json', 'utf8'));
+const defs = JSON.parse(await fs.readFile(process.argv[4] || '/tmp/manga-object-info.json', 'utf8'));
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH });
 const page = await browser.newPage({ viewport: { width: 1440, height: 980 } });
 const errors = []; page.on('pageerror', error => errors.push(error.message));
 const queued = [], uploads = [], cancellations = []; let hold = false;
 try {
+    if (process.argv[4]) await page.route(/\/(?:api\/)?object_info(?:\?.*)?$/, route => route.fulfill({ json: defs }));
     await page.addInitScript(({ project }) => { localStorage.setItem('mm-project', project); localStorage.setItem('mm-space', 'panels'); }, { project: backend.project });
     await page.route('**/extensions/ComfyUI-MangaMakerStudio/**', async route => {
         const name = new URL(route.request().url()).pathname.split('/').at(-1);
@@ -285,6 +286,38 @@ try {
     await controls.getByLabel('Use stitch mask', { exact: true }).check();
     await controls.getByRole('button', { name: 'Clear mask', exact: true }).click();
     assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), false, 'Clearing the mask cannot leave an invisible stitch enabled');
+    if (process.argv[4]) {
+        await controls.getByLabel('Drawing workflow', { exact: true }).selectOption('manga');
+        const manga = dialog.getByRole('complementary', { name: 'Art to Manga Panel controls', exact: true });
+        assert.equal(await manga.getByLabel('Manga workflow', { exact: true }).inputValue(), 'lite');
+        assert.equal(await manga.getByLabel('Realtime on stroke release', { exact: true }).isVisible(), false);
+        await manga.getByRole('button', { name: 'Generate Art to Manga Panel', exact: true }).click();
+        await manga.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+        const lite = Object.values(queued.at(-1).prompt);
+        assert(lite.some(n => n.class_type === 'MangaLevels'));
+        assert(!lite.some(n => n.class_type === 'UNETLoader'));
+        const layers = () => frame.evaluate(async () => (await editor.readPSD(await (await editor.getPSD()).arrayBuffer())).layers.map(l => l.name));
+        assert.equal((await layers()).length, 4); assert((await layers()).at(-1).startsWith('Art to Manga Panel'));
+        const mangaPixels = await drawingPixels();
+        assert.deepEqual(pixelAt(mangaPixels, 0, 0), [255, 255, 255, 255], 'Panel fits without stretching');
+        assert.deepEqual(pixelAt(mangaPixels, 128, 128), [193, 216, 203, 255]);
+        await dialog.locator('iframe').focus(); await page.keyboard.press('Control+z');
+        assert.deepEqual(await drawingPixels(), wholeAfterMask);
+        await page.keyboard.press('Control+y'); assert.deepEqual(await drawingPixels(), mangaPixels);
+        await manga.getByLabel('Manga workflow', { exact: true }).selectOption('qwen');
+        await manga.locator('summary').filter({ hasText: 'Models and advanced settings' }).click();
+        for (const [label, node, key] of [['Diffusion model', 'UNETLoader', 'unet_name'], ['Text encoder', 'CLIPLoader', 'clip_name'], ['VAE', 'VAELoader', 'vae_name']]) {
+            await manga.getByLabel(label, { exact: true }).fill(options(defs, node, key)[0]);
+            await manga.getByLabel(label, { exact: true }).press('Tab');
+        }
+        await manga.getByRole('button', { name: 'Generate Art to Manga Panel', exact: true }).click();
+        await manga.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+        const full = Object.values(queued.at(-1).prompt);
+        assert(full.some(n => n.class_type === 'ManualSigmas')); assert(full.some(n => n.class_type === 'MangaFinish'));
+        assert.equal((await layers()).length, 4, 'Manga updates its own layer');
+        await manga.getByLabel('Drawing workflow', { exact: true }).selectOption('sketch');
+        assert.equal(await controls.getByLabel('Denoise', { exact: true }).inputValue(), '0.45');
+    }
     await dialog.getByRole('button', { name: 'Save to project', exact: true }).click();
     await dialog.getByText('Saved to project · Layers preserved', { exact: true }).waitFor();
     const saved = await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json();
@@ -294,6 +327,7 @@ try {
     const graphAfter = await page.evaluate(() => window.comfyAPI.app.app.graph.serialize());
     delete graphBefore.extra.k2cf_state_id; delete graphAfter.extra.k2cf_state_id; assert.deepEqual(graphAfter, graphBefore);
     assert.deepEqual(errors, []);
+    if (process.argv[4]) console.log('Art to Manga Panel passed: Lite/Qwen graphs, editable layer reuse, preserved aspect ratio, undo/redo and independent Sketch settings.');
     console.log('Sketch to Art passed: mask crop/stitch, protected holes, repeated masked layer updates and native undo,  whole-canvas/region pixels, feather and 50% opacity, editable reused layer with native undo/redo, sampler settings, release-only pen realtime, one job at a time, stale result skipped, targeted cancel, layered save and unchanged Comfy graph.');
 } catch (error) {
     await page.screenshot({ path: '/tmp/manga-sketch-error.png' }); console.error((await page.locator('.mm-studio').innerText().catch(() => 'Studio closed')).slice(-9000), errors); throw error;

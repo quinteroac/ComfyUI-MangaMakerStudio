@@ -1,3 +1,11 @@
+## Art to Manga Panel — October 17, 2026
+
+- Four Manga-Lite/QWEN-Manga graphs (with/without Manga Lineart) match current ComfyUI input contracts, linked output types and MangaScreen schemas. The full path preserves the upstream sigma schedule and encoder source latent.
+- Chromium checks passed for both manga modes through a simulated queue: separate editable layer, aspect-preserving placement, reused manga layer, native undo/redo, return to unchanged Sketch settings and layered saving. Existing Sketch region/mask/realtime/cancellation checks also pass; the open ComfyUI graph stays unchanged.
+- Real MangaScreen Levels → Finish → Panel processing passed on CPU using a synthetic illustration. Qwen inference and downloaded lineart weights were not exercised.
+- 14 Python tests passed, including manga result ownership, empty outputs and temporary-input cleanup. Existing 85 prompt graph checks and model inheritance tests passed.
+- MangaScreen was installed locally. The running ComfyUI was not restarted; restart when no jobs are active to load the dependency and updated result routes.
+
 # Validation — October 14, 2026
 
 - **85 API graphs and installed schemas passed**, including native/bridge Sketch to Art without automatic source scaling, shared source/target/sampler latent, effective denoise, LoRA order and Shift after the source patch.

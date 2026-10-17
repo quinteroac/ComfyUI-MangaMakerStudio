@@ -2,6 +2,8 @@ import { api } from '../../scripts/api.js';
 import { el, button, field, request, uuid } from './client.js';
 import { buildPrompt, options } from './prompts.js';
 import { inheritModels } from './models.js';
+import { mangaControls } from './manga-panel.js';
+import { buildMangaPrompt } from './manga-prompt.js';
 
 export function sketchControls(studio, kind, project, send, busyChanged) {
     const scope = `sketch_${kind}`; const existing = studio.project.config[`${scope}:krea_edit`];
@@ -27,7 +29,9 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         if (event.detail.prompt_id !== job?.id) return;
         completionNotified = true; wakePoll?.();
     }, { signal: abort.signal });
-    let dimensions, previewImage, drag; const layerName = `Sketch to Art · ${uuid().slice(0, 8)}`;
+    let dimensions, previewImage, drag; const layerId = uuid().slice(0, 8);
+    let mode = 'sketch';
+    const title = () => mode === 'manga' ? 'Art to Manga Panel' : 'Sketch to Art';
     const status = el('small', { role: 'status', text: 'Generate the canvas or a selected region as a new AI layer.' });
     const canvas = el('canvas', { class: 'mm-sketch-preview', width: 320, height: 200, 'aria-label': 'Sketch region preview', 'aria-describedby': 'mm-sketch-region-help', tabIndex: 0 });
     const realtime = el('input', { type: 'checkbox', 'aria-label': 'Realtime on stroke release', onchange: () => {
@@ -76,11 +80,21 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             field('Random seed', el('input', { type: 'checkbox', checked: cfg.random_seed, onchange: event => { cfg.random_seed = event.target.checked; changed(); } })));
         renderModels();
     }
-    const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, el('h3', { text: 'Sketch to Art' }), presets,
-        field('Drawing area', regionMode), el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, blend, prompt, sampling, models,
-        field('Realtime on stroke release', realtime), el('div', { class: 'mm-toolbar' }, generate, cancel), status);
+    const manga = mangaControls(studio, kind, () => { revision++; studio.saveSoon(); });
+    const heading = el('h3', { text: title() });
+    const tool = el('select', { 'aria-label': 'Drawing workflow', onchange: () => {
+        mode = tool.value; revision++; realtime.checked = false; pending = false;
+        heading.textContent = title(); generate.textContent = `Generate ${title()}`;
+        element.setAttribute('aria-label', `${title()} controls`);
+        workflowSettings.replaceChildren(mode === 'manga' ? manga.element : sketchSettings);
+        status.textContent = mode === 'manga' ? 'Convert the canvas or selected region into an editable manga layer.' : 'Generate the canvas or a selected region as a new AI layer.';
+    } }, el('option', { value: 'sketch', text: 'Sketch to Art' }), el('option', { value: 'manga', text: 'Art to Manga Panel' }));
+    const sketchSettings = el('div', {}, presets, blend, prompt, sampling, models, field('Realtime on stroke release', realtime));
+    const workflowSettings = el('div', {}, sketchSettings);
+    const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, field('Drawing workflow', tool), heading,
+        field('Drawing area', regionMode), el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, workflowSettings, el('div', { class: 'mm-toolbar' }, generate, cancel), status);
     renderSettings();
-    function update() { generate.disabled = !ready || !!active; preview.disabled = !ready || !!active; cancel.disabled = !active || stopping; busyChanged(); }
+    function update() { generate.disabled = !ready || !!active; preview.disabled = !ready || !!active; cancel.disabled = !active || stopping; tool.disabled = !!active; busyChanged(); }
     function region() {
         if (!dimensions) throw new Error('Update the canvas preview before selecting a region.');
         if (cfg.region_mode !== 'region') return { x: 0, y: 0, ...dimensions };
@@ -157,7 +171,8 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     function start() {
         if (disposed || !ready) return;
         if (active) { pending = true; return; }
-        stopping = false; pending = false; active = { token: uuid(), revision, settings: structuredClone(cfg) };
+        stopping = false; pending = false; active = { token: uuid(), revision, mode, name: title(), operation: mode === 'manga' ? 'manga' : 'sketch', engine: mode === 'manga' ? (manga.cfg.mode === 'qwen' ? 'qwen' : 'manga_lite') : 'krea_edit',
+            settings: structuredClone(mode === 'manga' ? { ...manga.cfg, feather: 0, blend_opacity: 100 } : cfg) };
         status.textContent = 'Capturing drawing…'; update(); send('manga-drawing-snapshot', { token: active.token });
     }
     async function stop() {
@@ -193,16 +208,16 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             const settings = ticket.settings;
             if (settings.random_seed) settings.seed = Math.floor(Math.random() * 2 ** 48);
             const imagePath = `${uploaded.subfolder ? uploaded.subfolder + '/' : ''}${uploaded.name} [${uploaded.type}]`;
-            const built = buildPrompt(studio.defs, 'sketch', 'krea_edit', settings, [imagePath], ticket.token);
-            job = await request(`/projects/${project}/jobs`, { id: ticket.token, operation: 'sketch', engine: 'krea_edit', kind, space: kind,
-                name: 'Sketch to Art', settings: { ...settings, region: r }, prompt: built.graph, output_node: built.outputNode, sources: [] }, 'POST');
+            const built = ticket.mode === 'manga' ? buildMangaPrompt(studio.defs, settings, imagePath) : buildPrompt(studio.defs, 'sketch', 'krea_edit', settings, [imagePath], ticket.token);
+            job = await request(`/projects/${project}/jobs`, { id: ticket.token, operation: ticket.operation, engine: ticket.engine, kind, space: kind,
+                name: ticket.name, settings: { ...settings, region: r }, prompt: built.graph, output_node: built.outputNode, sources: [] }, 'POST');
             if (studio.project?.id === project) { studio.project.jobs.push(job); studio.jobs(); }
             if (stopping || disposed) {
                 await request(`/projects/${project}/jobs/${job.id}`, { state: 'cancelled', error: 'Cancelled before submission.' }, 'PATCH'); finish('Generation cancelled.'); return;
             }
-            status.textContent = 'Sketch to Art queued…';
+            status.textContent = `${ticket.name} queued…`;
             const queued = await api.fetchApi('/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                prompt_id: job.id, client_id: api.clientId, prompt: built.graph, extra_data: { manga_maker: { project, operation: 'sketch', job: job.id } },
+                prompt_id: job.id, client_id: api.clientId, prompt: built.graph, extra_data: { manga_maker: { project, operation: ticket.operation, job: job.id } },
             }) });
             const result = await queued.json();
             if (!queued.ok || result.prompt_id !== job.id) throw new Error(JSON.stringify(result.node_errors || result.error || result));
@@ -211,7 +226,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             poll();
         } catch (error) {
             if (job) await request(`/projects/${project}/jobs/${job.id}`, { error: error.message }, 'PATCH').catch(() => {});
-            finish(`Sketch to Art failed: ${error.message}`);
+            finish(`${title()} failed: ${error.message}`);
         }
     }
     async function poll() {
@@ -226,17 +241,17 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
                     if (active.revision !== revision) { finish('Skipped an older result · Latest drawing preserved.'); break; }
                     status.textContent = 'Blending the result into a new layer…'; active.applying = true;
                     send('manga-drawing-apply-art', { token: active.token, imageUrl: api.apiURL('/view?' + new URLSearchParams(job.drawing_output)),
-                        region: active.region, mask: active.mask, layerName, revision: active.frameRevision, feather: active.settings.feather, opacity: active.settings.blend_opacity }); break;
+                        region: active.region, mask: active.mask, layerName: `${active.name} · ${layerId}`, fit: active.mode === 'manga' ? 'contain' : 'stretch', revision: active.frameRevision, feather: active.settings.feather, opacity: active.settings.blend_opacity }); break;
                 }
-                if (job.state === 'error' || job.state === 'cancelled') { if (job.state === 'cancelled') pending = false; finish(job.state === 'error' ? `Sketch to Art failed: ${JSON.stringify(job.error)}` : 'Generation cancelled.'); break; }
-                status.textContent = job.state === 'running' ? 'Generating Sketch to Art…' : 'Sketch to Art queued…';
+                if (job.state === 'error' || job.state === 'cancelled') { if (job.state === 'cancelled') pending = false; finish(job.state === 'error' ? `${title()} failed: ${JSON.stringify(job.error)}` : 'Generation cancelled.'); break; }
+                status.textContent = job.state === 'running' ? `Generating ${title()}…` : `${title()} queued…`;
                 if (!completionNotified) await new Promise(resolve => {
                     const timeout = setTimeout(done, 1000);
                     function done() { clearTimeout(timeout); wakePoll = null; resolve(); }
                     wakePoll = done;
                 });
             }
-        } catch (error) { finish(`Sketch to Art failed: ${error.message}`); }
+        } catch (error) { finish(`${title()} failed: ${error.message}`); }
         finally { polling = false; if (job && !active?.applying && !disposed) poll(); }
     }
     async function handle(data) {
@@ -257,7 +272,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         } else if (data.type === 'manga-drawing-art-stale' && data.token === active?.token) finish('Skipped an older result · Latest drawing preserved.');
         else if (data.type === 'manga-drawing-ai-error') {
             if (data.token === 'preview') status.textContent = data.error;
-            else if (data.token === active?.token) finish(`Sketch to Art failed: ${data.error}`);
+            else if (data.token === active?.token) finish(`${title()} failed: ${data.error}`);
         }
     }
     return { element, handle, get busy() { return !!active; }, dispose() {

@@ -4,7 +4,7 @@ let editor, saving = false, aiBusy = false, submitSuccess, submitError, canvasRe
 
 async function save() {
     if (!editor || saving) return;
-    if (aiBusy) { submitError?.(); submitSuccess = submitError = null; send('manga-drawing-error', { error: 'Wait for Sketch to Art or cancel it before saving.' }); return; }
+    if (aiBusy) { submitError?.(); submitSuccess = submitError = null; send('manga-drawing-error', { error: 'Wait for generation or cancel it before saving.' }); return; }
     saving = true; document.documentElement.inert = true;
     send('manga-drawing-saving');
     try {
@@ -61,7 +61,13 @@ window.addEventListener('message', async event => {
             if (![r.x, r.y, r.width, r.height].every(Number.isInteger) || r.x < 0 || r.y < 0 || r.width < 1 || r.height < 1) throw new Error('The selected region no longer fits the canvas.');
             const image = new Image(); image.src = data.imageUrl; await image.decode();
             const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
-            const ctx = crop.getContext('2d'); ctx.drawImage(image, 0, 0, r.width, r.height);
+            const ctx = crop.getContext('2d');
+            if (data.fit === 'contain') {
+                const scale = Math.min(r.width / image.naturalWidth, r.height / image.naturalHeight);
+                const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+                ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, r.width, r.height);
+                ctx.drawImage(image, (r.width - width) / 2, (r.height - height) / 2, width, height);
+            } else ctx.drawImage(image, 0, 0, r.width, r.height);
             const pixels = ctx.getImageData(0, 0, r.width, r.height), feather = Math.max(0, Number(data.feather) || 0);
             let maskPixels, clearMask;
             if (data.mask instanceof Blob) {

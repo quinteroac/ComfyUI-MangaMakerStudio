@@ -124,13 +124,15 @@ export class Studio {
     confirm(title, fn) {
         const dialog = this.modal(title, el('div', {}, el('p', { text: 'Confirm this operation. Removed assets can be recovered using the Trash filter.' }), button('Confirm', () => this.action(async () => { await fn(); dialog.close(); }), { class: 'mm-danger' })));
     }
-    createProject() { this.ask('Project name', 'New manga', async name => { const p = await request('/projects', { name }, 'POST'); this.projects = await request('/projects'); await this.open(p.id); }); }
+    createProject(onCreated) { this.ask('Project name', 'New manga', async name => { const p = await request('/projects', { name }, 'POST'); this.projects = await request('/projects'); await this.open(p.id); onCreated?.(); }); }
     projectManager() {
         const list = el('div', { class: 'mm-project-list' });
-        for (const p of this.projects) list.append(el('div', { class: 'mm-row' }, el('strong', { text: p.name }), button('Open', () => this.action(async () => { await this.open(p.id); dialog.close(); })),
+        for (const p of this.projects) list.append(el('div', { class: 'mm-project-row' }, el('strong', { text: p.name }), el('div', { class: 'mm-project-actions', role: 'group', 'aria-label': `Actions for ${p.name}` }, button('Open', () => this.action(async () => { await this.open(p.id); dialog.close(); })),
             button('Rename', () => this.ask('Rename project', p.name, async name => { await request(`/projects/${p.id}`, { name }, 'PUT'); this.projects = await request('/projects'); if (this.project?.id === p.id) this.project.name = name; this.renderHeader(); dialog.close(); this.projectManager(); })),
-            button('Duplicate', () => this.ask('Copy name', `${p.name} · copy`, async name => { const copy = await request(`/projects/${p.id}/duplicate`, { name }, 'POST'); this.projects = await request('/projects'); await this.open(copy.id); dialog.close(); }))));
-        list.append(button('Create project', () => this.createProject())); const dialog = this.modal('Projects', list);
+            button('Duplicate', () => this.ask('Copy name', `${p.name} · copy`, async name => { const copy = await request(`/projects/${p.id}/duplicate`, { name }, 'POST'); this.projects = await request('/projects'); await this.open(copy.id); dialog.close(); })))));
+        if (!this.projects.length) list.append(el('p', { class: 'mm-project-empty', text: 'No projects yet. Create one to get started.' }));
+        const dialog = this.modal('Projects', list); dialog.classList.add('mm-project-dialog');
+        dialog.append(el('div', { class: 'mm-dialog-actions mm-project-footer' }, dialog.querySelector(':scope > button'), button('Create project', () => this.createProject(() => dialog.close()), { class: 'mm-primary' })));
     }
     globalSettings() {
         const value = clone(this.settings); this.globalDraft = value;
@@ -814,7 +816,7 @@ export class Studio {
             const added = JSON.stringify(data.assets.map(a => [a.id,a.missing,a.deleted,a.name,a.metadata?.description_prompt])) !== JSON.stringify(project.assets.map(a => [a.id,a.missing,a.deleted,a.name,a.metadata?.description_prompt]));
             for (const job of data.jobs) {
                 const prior = project.jobs.find(j => j.id === job.id);
-                if (job.state === 'error' && prior?.state !== 'error') this.fail(new Error(`${textTasks[job.operation] || (job.operation === 'sketch' ? 'Sketch to Art' : spaces[job.operation === 'analysis' ? 'finish' : job.operation])} · ${job.engine}: ${typeof job.error === 'string' ? job.error : JSON.stringify(job.error)}`));
+                if (job.state === 'error' && prior?.state !== 'error') this.fail(new Error(`${textTasks[job.operation] || (job.operation === 'sketch' ? 'Sketch to Art' : job.operation === 'manga' ? 'Art to Manga Panel' : spaces[job.operation === 'analysis' ? 'finish' : job.operation])} · ${job.engine}: ${typeof job.error === 'string' ? job.error : JSON.stringify(job.error)}`));
                 if (job.state === 'complete' && prior?.state !== 'complete') {
                     const space = job.operation === 'analysis' ? 'finish' : job.operation;
                     if (job.operation in textTasks) this.textResult(job);

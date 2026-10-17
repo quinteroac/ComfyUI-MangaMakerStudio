@@ -74,6 +74,27 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.delete(f"/manga-maker/projects/{project['id']}/drawing-inputs/not-a-uuid")
         self.assertEqual(response.status, 400)
 
+    async def test_manga_result_and_empty_output(self):
+        for returned in (True, False):
+            project = self.store.create('Manga'); job_id = str(uuid.uuid4())
+            image = io.BytesIO(); Image.new('RGB', (80, 60), 'white').save(image, format='PNG')
+            (self.root / 'output' / 'manga.png').write_bytes(image.getvalue())
+            temp = self.root / 'output' / 'manga-maker-drawing' / project['id'] / f'{job_id}.png'
+            temp.parent.mkdir(parents=True); temp.write_bytes(image.getvalue())
+            response = await self.client.post(f"/manga-maker/projects/{project['id']}/jobs", json={
+                'id': job_id, 'operation': 'manga', 'kind': 'panels', 'engine': 'manga_lite', 'settings': {},
+                'prompt': {}, 'output_node': '1', 'sources': [], 'name': 'Art to Manga Panel',
+            })
+            self.assertEqual(response.status, 200)
+            self.queue.history[job_id] = {'status': {'completed': True}, 'outputs': {'1': {'images': [
+                {'filename': 'manga.png', 'subfolder': '', 'type': 'temp'}] if returned else []}}}
+            response = await self.client.get(f"/manga-maker/projects/{project['id']}"); data = await response.json()
+            self.assertEqual(data['assets'], [])
+            self.assertEqual(data['jobs'][0]['state'], 'complete' if returned else 'error')
+            if returned: self.assertEqual(data['jobs'][0]['drawing_output']['filename'], 'manga.png')
+            else: self.assertEqual(data['jobs'][0]['error'], 'Art to Manga Panel returned no image.')
+            self.assertFalse(temp.exists())
+
     async def test_image_download_preserves_format_extension_and_source_bytes(self):
         project = self.store.create('Downloads')
         for kind, image_format, name, filename, media_type in [

@@ -80,6 +80,10 @@ const iconPaths = {
     speech: 'M21 10a9 7 0 0 1-9 7H7l-4 4 1-7a7 7 0 0 1-1-4 9 7 0 0 1 18 0Z',
     thought: 'M7 5a4 4 0 0 1 7-2 4 4 0 0 1 6 4 4 4 0 0 1-1 7 4 4 0 0 1-7 2 4 4 0 0 1-7-2 4 4 0 0 1 2-9ZM6 19a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM2 23h.01',
     orientation: 'M8 3H3v5m0-5 5 5m8 13h5v-5m0 5-5-5M9 6h9v12H9Z',
+    up: 'm6 15 6-6 6 6',
+    down: 'm6 9 6 6 6-6',
+    dice: 'M4 4h16v16H4ZM8.5 8.5h.01M15.5 8.5h.01M12 12h.01M8.5 15.5h.01M15.5 15.5h.01',
+    sidebar: 'M3 4h18v16H3ZM9 4v16',
 };
 export function icon(name) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

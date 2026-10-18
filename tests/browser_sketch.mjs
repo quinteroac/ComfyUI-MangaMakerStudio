@@ -57,6 +57,9 @@ try {
         app.extensions.find(e => e.name === 'MangaMaker.Studio').commands[0].function(); return graph;
     });
     const studio = page.locator('.mm-studio'); await studio.waitFor();
+    const segment = (scope, label) => scope.getByRole('radiogroup', { name: label, exact: true });
+    const choose = (scope, label, value) => segment(scope, label).locator(`input[value="${value}"]`).check();
+    const chosen = (scope, label) => segment(scope, label).locator('input:checked').inputValue();
     await studio.getByRole('button', { name: 'Draw panel', exact: true }).click();
     const setup = studio.getByRole('dialog', { name: 'New panel drawing', exact: true });
     await setup.getByLabel('Drawing name', { exact: true }).fill('AI panel sketch');
@@ -86,7 +89,7 @@ try {
     await page.mouse.down();
     await page.mouse.move(previewBox.x + previewBorder + previewSize / 2, previewBox.y + previewBorder + previewSize / 2, { steps: 5 });
     await page.mouse.up();
-    assert.equal(await controls.getByLabel('Drawing area', { exact: true }).inputValue(), 'region');
+    assert.equal(await chosen(controls, 'Drawing area'), 'region');
     for (const [label, value] of [['X', '32'], ['Y', '32'], ['Region width', '96'], ['Region height', '96']]) {
         assert.equal(await controls.getByLabel(label, { exact: true }).inputValue(), value);
     }
@@ -105,11 +108,11 @@ try {
     await page.waitForTimeout(100);
     assert(await viewPixels() > 0, 'Region guides must be visible on the drawing canvas');
     const revisionWithGuides = await frame.evaluate(() => editor.getRevision());
-    await controls.getByLabel('Drawing area', { exact: true }).selectOption('canvas');
+    await choose(controls, 'Drawing area', 'canvas');
     await page.waitForTimeout(100);
     assert.equal(await viewPixels(), 0, 'Whole canvas hides region guides');
     const pngWithoutGuides = await frame.evaluate(async () => [...new Uint8Array(await (await editor.getPNG()).arrayBuffer())]);
-    await controls.getByLabel('Drawing area', { exact: true }).selectOption('region');
+    await choose(controls, 'Drawing area', 'region');
     await page.waitForTimeout(100);
     assert(await viewPixels() > 0);
     assert.equal(await frame.evaluate(() => editor.getRevision()), revisionWithGuides, 'Guides do not change undo history');
@@ -223,7 +226,7 @@ try {
     await controls.getByText('Generation cancelled.', { exact: true }).waitFor();
     assert(cancellations.some(call => call.endpoint === 'queue' && call.body.delete.includes(queued[3].prompt_id)));
     hold = false;
-    await controls.getByLabel('Drawing area', { exact: true }).selectOption('canvas');
+    await choose(controls, 'Drawing area', 'canvas');
     await controls.locator('summary').filter({ hasText: /^Layer blending$/ }).click();
     await controls.getByLabel('Edge feather · px', { exact: true }).fill('0');
     await controls.getByLabel('Blend opacity · %', { exact: true }).fill('50'); await controls.getByLabel('Blend opacity · %', { exact: true }).press('Tab');
@@ -242,7 +245,7 @@ try {
     const beforeMask = await drawingPixels();
     await controls.getByLabel('Blend opacity · %', { exact: true }).fill('100'); await controls.getByLabel('Blend opacity · %', { exact: true }).press('Tab');
     await controls.locator('summary').filter({ hasText: /^Crop and stitch mask$/ }).click();
-    await controls.getByLabel('Preview tool', { exact: true }).selectOption('paint');
+    await choose(controls, 'Preview tool', 'paint');
     await controls.getByLabel('Mask brush size · px', { exact: true }).fill('64');
     const maskStroke = async (from, to) => {
         await regionPreview.scrollIntoViewIfNeeded();
@@ -253,10 +256,10 @@ try {
     };
     await maskStroke([64, 96], [192, 96]);
     assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), true);
-    await controls.getByLabel('Preview tool', { exact: true }).selectOption('erase');
+    await choose(controls, 'Preview tool', 'erase');
     await controls.getByLabel('Mask brush size · px', { exact: true }).fill('32');
     await maskStroke([128, 96], [128, 96]);
-    assert.equal(await controls.getByLabel('Drawing area', { exact: true }).inputValue(), 'region');
+    assert.equal(await chosen(controls, 'Drawing area'), 'region');
     await controls.getByRole('button', { name: 'Generate Sketch to Art', exact: true }).click();
     await controls.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
     assert.equal(queued.length, 6);
@@ -273,21 +276,21 @@ try {
     const featheredMask = await drawingPixels();
     assert.deepEqual(pixelAt(featheredMask, 128, 96), pixelAt(beforeMask, 128, 96), 'Mask feather does not bleed into protected holes');
     assert.equal(await frame.evaluate(async () => (await editor.readPSD(await (await editor.getPSD()).arrayBuffer())).layers.length), 3);
-    await controls.getByLabel('Drawing area', { exact: true }).selectOption('canvas');
+    await choose(controls, 'Drawing area', 'canvas');
     assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), false, 'Whole canvas disables the previous regional mask');
-    assert.equal(await controls.getByLabel('Preview tool', { exact: true }).inputValue(), 'region');
+    assert.equal(await chosen(controls, 'Preview tool'), 'region');
     await controls.getByLabel('Edge feather · px', { exact: true }).fill('0'); await controls.getByLabel('Edge feather · px', { exact: true }).press('Tab');
     await controls.getByRole('button', { name: 'Generate Sketch to Art', exact: true }).click();
     await controls.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
     assert.equal(uploads.at(-1).width, 256); assert.equal(uploads.at(-1).height, 256);
-    assert.equal(await controls.getByLabel('Drawing area', { exact: true }).inputValue(), 'canvas', 'Mask bounds must not switch back to regional inference');
+    assert.equal(await chosen(controls, 'Drawing area'), 'canvas', 'Mask bounds must not switch back to regional inference');
     const wholeAfterMask = await drawingPixels();
     assert.deepEqual(pixelAt(wholeAfterMask, 0, 0), [193, 216, 203, 255], 'Full-canvas generation visibly replaces previously protected areas');
     await controls.getByLabel('Use stitch mask', { exact: true }).check();
     await controls.getByRole('button', { name: 'Clear mask', exact: true }).click();
     assert.equal(await controls.getByLabel('Use stitch mask', { exact: true }).isChecked(), false, 'Clearing the mask cannot leave an invisible stitch enabled');
     if (process.argv[4]) {
-        await controls.getByLabel('Drawing workflow', { exact: true }).selectOption('manga');
+        await choose(controls, 'Drawing workflow', 'manga');
         const manga = dialog.getByRole('complementary', { name: 'Art to Manga Panel controls', exact: true });
         assert.equal(await manga.getByLabel('Manga workflow', { exact: true }).inputValue(), 'lite');
         assert.equal(await manga.getByLabel('Realtime on stroke release', { exact: true }).isVisible(), false);
@@ -315,7 +318,7 @@ try {
         const full = Object.values(queued.at(-1).prompt);
         assert(full.some(n => n.class_type === 'ManualSigmas')); assert(full.some(n => n.class_type === 'MangaFinish'));
         assert.equal((await layers()).length, 4, 'Manga updates its own layer');
-        await manga.getByLabel('Drawing workflow', { exact: true }).selectOption('sketch');
+        await choose(manga, 'Drawing workflow', 'sketch');
         assert.equal(await controls.getByLabel('Denoise', { exact: true }).inputValue(), '0.45');
     }
     await dialog.getByRole('button', { name: 'Save to project', exact: true }).click();

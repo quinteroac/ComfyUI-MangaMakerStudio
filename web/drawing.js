@@ -1,5 +1,5 @@
 import { api } from '../../scripts/api.js';
-import { el, button, field, request, assetUrl, sizeControls } from './client.js';
+import { el, button, iconButton, field, request, assetUrl, sizeControls } from './client.js';
 import { imageDimensions, sizeSettings } from './size.js';
 import { sketchControls } from './drawing-ai.js';
 
@@ -7,9 +7,9 @@ export function openDrawing(studio, kind, source = null) {
     if (!source) {
         const size = sizeSettings(studio.config(kind)), name = el('input', { value: kind === 'references' ? 'Reference sketch' : 'Panel sketch', 'aria-label': 'Drawing name' });
         const dialog = studio.modal(kind === 'references' ? 'New reference drawing' : 'New panel drawing', el('div', {}, field('Drawing name', name),
-            sizeControls(size, value => Object.assign(size, value)), button('Start drawing', () => {
+            sizeControls(size, value => Object.assign(size, value))), button('Start drawing', () => {
                 dialog.close(); drawingEditor(studio, kind, null, name.value, imageDimensions(size));
-            }, { class: 'mm-primary' })));
+            }, { class: 'mm-primary' }));
     } else drawingEditor(studio, kind, source, source.name, { width: source.width, height: source.height });
 }
 
@@ -28,10 +28,10 @@ function drawingEditor(studio, kind, source, drawingName, size) {
     const close = () => {
         if (saving || exporting) return;
         if (!dirty) { dialog.close(); return; }
-        const discard = studio.modal('Discard unsaved drawing?', el('div', {}, el('p', { text: 'Changes since the last save will be discarded.' }),
-            button('Discard changes', () => { discard.close(); dialog.close(); }, { class: 'mm-danger' })));
+        const discard = studio.modal('Discard unsaved drawing?', el('p', { text: 'Changes since the last save will be discarded.' }),
+            button('Keep drawing', () => discard.close()), button('Discard changes', () => { discard.close(); dialog.close(); }, { class: 'mm-danger' }));
     };
-    dialog.querySelector(':scope > button:last-child').replaceWith(button('Close', close));
+    dialog.querySelector('.mm-modal-close').replaceWith(iconButton('Close', 'clear', close, { class: 'mm-icon-button mm-modal-close' }));
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     const abort = new AbortController();
     window.addEventListener('message', async event => {

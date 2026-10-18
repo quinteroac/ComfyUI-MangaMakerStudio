@@ -52,6 +52,9 @@ try {
         ext.commands[0].function();
     });
     const studio = page.locator('.mm-studio'); await studio.waitFor();
+    const segment = (scope, label) => scope.getByRole('radiogroup', { name: label, exact: true });
+    const choose = (scope, label, value) => segment(scope, label).locator(`input[value="${value}"]`).check();
+    const chosen = (scope, label) => segment(scope, label).locator('input:checked').inputValue();
     const assetAction = async (card, name, context = false) => {
         if (context) await card.click({ button: 'right' });
         else await card.getByRole('button', { name: 'Image actions', exact: true }).click();
@@ -83,7 +86,7 @@ try {
     await create.getByRole('button', { name: 'Save', exact: true }).click();
     await create.waitFor({ state: 'detached' });
     assert.equal(await studio.getByRole('combobox', { name: 'Active project' }).locator('option:checked').textContent(), 'Proyecto sin randomUUID');
-    await projects.getByRole('button', { name: 'Close', exact: true }).click();
+    await projects.waitFor({ state: 'detached' });
     await studio.getByRole('combobox', { name: 'Active project' }).selectOption(backend.project);
     await studio.getByRole('heading', { name: 'Create references' }).waitFor();
     await page.screenshot({ path: `${captures}/references-empty.png` });
@@ -196,8 +199,6 @@ try {
     await page.screenshot({ path: `${captures}/context-menu.png` });
     await studio.locator('.mm-panels h2').first().click();
     assert.equal(await firstCard.getByRole('menu').isVisible(), false);
-    await studio.getByRole('button', { name: 'Selection actions', exact: true }).count();
-    await studio.locator('summary:visible').filter({ hasText: 'Selection actions' }).click();
     await studio.getByRole('button', { name: 'Select visible', exact: true }).click(); assert.equal(await studio.locator('.mm-panels .mm-selected').count(), 8);
     await studio.getByRole('button', { name: 'Clear selection', exact: true }).click();
     await page.screenshot({ path: `${captures}/panels.png` });
@@ -281,7 +282,7 @@ try {
     await page.mouse.move(bubbleCanvas.x + bubbleCanvas.width * .92, bubbleCanvas.y + bubbleCanvas.height * .84); await page.mouse.up();
     assert(Number(await studio.getByLabel('Bubble width · %', { exact: true }).inputValue()) > 30);
     await studio.getByRole('button', { name: 'Export composition to pages/', exact: true }).click();
-    await studio.locator('.mm-status').filter({ hasText: 'Composition saved' }).waitFor();
+    await studio.locator('.mm-toast').filter({ hasText: 'Composition saved' }).waitFor();
     await page.screenshot({ path: `${captures}/editor.png` });
     const projectData = await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json();
     assert.equal(projectData.assets.filter(a => a.kind === 'pages').length, 1);
@@ -335,9 +336,9 @@ try {
     const redesignInstruction = pageAnalysisInstructions.redesign;
     assert.equal(await finishView.getByLabel('Analysis instruction', { exact: true }).inputValue(), refineInstruction);
     await finishView.getByLabel('Analysis instruction', { exact: true }).fill('Custom refinement');
-    await finishView.getByLabel('Operation', { exact: true }).selectOption('redesign');
+    await choose(finishView, 'Operation', 'redesign');
     assert.equal(await finishView.getByLabel('Analysis instruction', { exact: true }).inputValue(), redesignInstruction);
-    await finishView.getByLabel('Operation', { exact: true }).selectOption('refine');
+    await choose(finishView, 'Operation', 'refine');
     assert.equal(await finishView.getByLabel('Analysis instruction', { exact: true }).inputValue(), 'Custom refinement');
     await finishView.getByRole('button', { name: 'Restore default instruction', exact: true }).click();
     assert.equal(await finishView.getByLabel('Analysis instruction', { exact: true }).inputValue(), refineInstruction);
@@ -366,12 +367,11 @@ try {
     const picker = studio.getByRole('dialog', { name: 'Connect references', exact: true });
     await picker.locator('.mm-asset-picker > button').first().click();
     await picker.getByRole('button', { name: 'Close', exact: true }).click();
-    const outputSize = qwenView.getByLabel('Output size', { exact: true });
-    assert.equal(await outputSize.inputValue(), 'original');
+    assert.equal(await chosen(qwenView, 'Output size'), 'original');
     assert.equal(await qwenView.getByRole('group', { name: 'Aspect ratio', exact: true }).locator('[aria-pressed=true]').getAttribute('data-ratio'), '2:3');
     assert.equal(await qwenView.getByLabel('Resolution · MP', { exact: true }).inputValue(), '0.1536');
     assert.equal(await qwenView.getByRole('group', { name: 'Aspect ratio', exact: true }).getByRole('button').first().isDisabled(), true);
-    await outputSize.selectOption('manual');
+    await choose(qwenView, 'Output size', 'manual');
     const ar = qwenView.getByRole('group', { name: 'Aspect ratio', exact: true }).getByRole('button', { name: '9:16', exact: true });
     assert.equal(await ar.isEnabled(), true);
     await ar.focus(); await ar.press('Enter'); assert.equal(await ar.getAttribute('aria-pressed'), 'true');
@@ -385,7 +385,7 @@ try {
     const manualEncoder = Object.values(queued[5].prompt).find(n => n.class_type === 'TextEncodeQwenImage21');
     assert.equal(manualEncoder.inputs.prompt, '[TASK: IMAGE_EDIT]\n\n[Subject] A consistent manga character.\n\n[Style] Black and white manga.');
     assert.equal(queued[5].prompt[manualEncoder.inputs['images.image_1'][0]].class_type, 'ImageScale');
-    await outputSize.selectOption('original');
+    await choose(qwenView, 'Output size', 'original');
     await qwenView.getByRole('button', { name: 'Generate reference', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.mm-references .mm-asset').length === 3);
     assert.equal(Object.values(queued[6].prompt).some(n => n.class_type === 'ImageScale'), false);
@@ -431,12 +431,12 @@ try {
     const deletedConnection = qwenView.locator(`.mm-reference-strip > [data-asset-id="${deletedId}"]`);
     assert.match(await deletedConnection.innerText(), /Trash/);
     assert.equal(await deletedConnection.getByRole('button', { name: 'Restore reference', exact: true }).count(), 1);
-    await qwenView.getByLabel('Filter', { exact: true }).selectOption('trash');
+    await choose(qwenView, 'Filter', 'trash');
     const trashCard = qwenView.locator(`.mm-asset[data-asset-id="${deletedId}"]`); await trashCard.waitFor();
     await deletedConnection.getByRole('button', { name: 'Restore reference', exact: true }).click();
     await trashCard.waitFor({ state: 'detached' });
     assert.doesNotMatch(await deletedConnection.innerText(), /Trash/);
-    await qwenView.getByLabel('Filter', { exact: true }).selectOption('all');
+    await choose(qwenView, 'Filter', 'all');
     await qwenView.locator(`.mm-asset[data-asset-id="${deletedId}"]`).waitFor();
     const restoredAsset = (await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json()).assets.find(a => a.id === deletedId);
     assert.equal(restoredAsset.deleted, false);
@@ -566,14 +566,14 @@ try {
     await editPicker.getByRole('button', { name: 'Close', exact: true }).click();
     await editView.getByLabel('Initial latent image', { exact: true }).selectOption(generatedReference);
     assert.equal(await editView.getByLabel('Initial latent image', { exact: true }).evaluate(select => select.multiple), false);
-    await editView.locator(`.mm-reference-strip [data-asset-id="${generatedReference}"]`).getByRole('button', { name: '↑', exact: true }).click();
+    await editView.locator(`.mm-reference-strip [data-asset-id="${generatedReference}"]`).getByRole('button', { name: 'Move reference up', exact: true }).click();
     assert.equal(await editView.getByLabel('Initial latent image', { exact: true }).inputValue(), generatedReference);
-    await editView.locator(`.mm-reference-strip [data-asset-id="${importedReference.id}"]`).getByRole('button', { name: '↑', exact: true }).click();
+    await editView.locator(`.mm-reference-strip [data-asset-id="${importedReference.id}"]`).getByRole('button', { name: 'Move reference up', exact: true }).click();
     await editView.getByLabel('Initial latent image', { exact: true }).selectOption(extraReferences[1]);
     await editView.locator('summary').filter({ hasText: /^Sampling$/ }).click();
     await editView.getByLabel('Denoise', { exact: true }).fill('0.45');
     await editView.getByLabel('Denoise', { exact: true }).press('Tab');
-    await editView.getByLabel('Output size', { exact: true }).selectOption('manual');
+    await choose(editView, 'Output size', 'manual');
     await editView.getByRole('group', { name: 'Aspect ratio', exact: true }).getByRole('button', { name: '16:9', exact: true }).click();
     await editView.getByLabel('Resolution · MP', { exact: true }).fill('1.5');
     const beforeEditCount = await editView.locator('.mm-asset').count();
@@ -600,7 +600,7 @@ try {
     assert.equal(await editView.getByLabel('Denoise', { exact: true }).isVisible(), false);
     await editView.getByLabel('Initial latent image', { exact: true }).selectOption(importedReference.id);
     await editView.getByLabel('Denoise', { exact: true }).fill('0.3');
-    await editView.getByLabel('Output size', { exact: true }).selectOption('original');
+    await choose(editView, 'Output size', 'original');
     await editView.getByRole('button', { name: 'Edit reference', exact: true }).click();
     await page.waitForFunction(count => document.querySelectorAll('.mm-references .mm-asset').length === count + 2, beforeEditCount);
     assert(Object.values(queued.at(-1).prompt).some(n => n.class_type === 'Krea2Qwen8BGroundedEncode'));

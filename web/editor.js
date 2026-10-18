@@ -1,6 +1,7 @@
 import { api } from '../../scripts/api.js';
 import { uuid, el, button, iconButton, field, assetUrl, sizeControls, chooseFile, request } from './client.js';
 import { imageDimensions, sizeSettings } from './size.js';
+import { segmented, slider, toggle, resizer } from './controls.js';
 
 const newBubble = (type = 'speech') => ({ id: uuid(), type, x: 0.12, y: 0.12, w: 0.28, h: 0.12, z: 0,
     text: '', fontSize: 40, font: 'sans-serif', fill: '#ffffff', fillOpacity: 1, color: '#111111', stroke: '#111111', border: 3, borderEnabled: true, tail: true, tailX: 0.3, tailY: 1.3 });
@@ -183,17 +184,16 @@ export class PageEditor {
     build() {
         this.host.replaceChildren();
         this.toolbar = el('div', { class: 'mm-toolbar', role: 'toolbar', 'aria-label': 'Page tools' });
-        for (const [mode, text, symbol] of [['select', 'Select', 'pointer'], ['rect', 'Rectangle', 'rectangle'], ['polygon', 'Polygon', 'polygon'], ['vertices', 'Vertices', 'vertices'], ['crop', 'Image framing', 'crop'], ['pan', 'Pan canvas', 'hand']]) {
-            const b = iconButton(text, symbol, () => this.setMode(mode), { 'data-mode': mode, 'aria-pressed': String(mode === this.mode) });
-            this.toolbar.append(b);
-        }
+        const group = (label, ...buttons) => el('div', { class: 'mm-toolbar-group', role: 'group', 'aria-label': label }, ...buttons);
         this.undoButton = iconButton('↶ Undo', 'undo', () => this.history(-1)); this.redoButton = iconButton('↷ Redo', 'redo', () => this.history(1));
-        this.toolbar.append(iconButton('Add speech bubble', 'speech', () => this.addBubble('speech')), iconButton('Add thought bubble', 'thought', () => this.addBubble('thought')),
-            this.undoButton, this.redoButton, iconButton('Fit page', 'fit', () => this.fit()), button('100 %', () => this.scale(1)), iconButton('Center', 'center', () => this.center()));
+        this.toolbar.append(group('Tools', ...[['select', 'Select', 'pointer'], ['rect', 'Rectangle', 'rectangle'], ['polygon', 'Polygon', 'polygon'], ['vertices', 'Vertices', 'vertices'], ['crop', 'Image framing', 'crop'], ['pan', 'Pan canvas', 'hand']]
+            .map(([mode, text, symbol]) => iconButton(text, symbol, () => this.setMode(mode), { 'data-mode': mode, 'aria-pressed': String(mode === this.mode) }))),
+            group('Dialogue', iconButton('Add speech bubble', 'speech', () => this.addBubble('speech')), iconButton('Add thought bubble', 'thought', () => this.addBubble('thought'))),
+            group('History', this.undoButton, this.redoButton), group('View', iconButton('Fit page', 'fit', () => this.fit()), button('100 %', () => this.scale(1)), iconButton('Center', 'center', () => this.center())));
         this.viewport = el('div', { class: 'mm-canvas-viewport', tabIndex: 0, 'aria-label': 'Editor. Delete: remove. Control Z: undo. Control Y: redo. Enter: finish polygon. Escape: cancel.' });
         this.canvas = el('canvas', { class: 'mm-page-canvas' }); this.viewport.append(this.canvas);
         this.properties = el('aside', { class: 'mm-editor-properties' });
-        this.host.append(this.toolbar, el('div', { class: 'mm-editor-body' }, this.viewport, this.properties), el('small', { text: 'Drag images into a panel · Delete removes · Ctrl Z / Ctrl Y · Enter finishes polygon · Esc cancels · Ctrl + wheel: zoom', class: 'mm-help' }));
+        this.host.append(this.toolbar, el('div', { class: 'mm-editor-body' }, this.viewport, resizer(this.properties, 'Resize properties', true), this.properties), el('small', { text: 'Drag images into a panel · Delete removes · Ctrl Z / Ctrl Y · Enter finishes polygon · Esc cancels · Ctrl + wheel: zoom', class: 'mm-help' }));
         const listen = (name, fn) => this.viewport.addEventListener(name, fn, { signal: this.abort.signal });
         listen('pointerdown', e => this.down(e)); listen('pointermove', e => this.move(e)); listen('pointerup', e => this.up(e));
         listen('pointercancel', () => this.cancel()); listen('dblclick', () => { if (this.mode === 'polygon') this.finishPolygon(); });
@@ -323,47 +323,51 @@ export class PageEditor {
         });
     }
     props() {
-        this.properties.replaceChildren(el('h3', { text: 'Page' }));
-        const input = (label, key, type = 'number', owner = this.page, attrs = {}) => field(label, el('input', { type, value: owner[key], ...attrs,
-            onchange: e => { if (type === 'number' && !Number.isFinite(Number(e.target.value))) return; this.change(() => { owner[key] = type === 'number' ? Number(e.target.value) : e.target.value; }, false); } }));
-        this.properties.append(input('Name', 'name', 'text'), sizeControls(this.page, size => { this.change(() => Object.assign(this.page, size, imageDimensions(size, 1)), false); this.fit(); }),
-            iconButton('Change orientation', 'orientation', () => { this.change(() => { [this.page.width, this.page.height] = [this.page.height, this.page.width]; this.page.aspect_ratio = this.page.aspect_ratio.split(':').reverse().join(':'); }); this.fit(); }),
-            input('Background', 'background', 'color'), input('Border · px', 'border'), input('Border color', 'borderColor', 'color'), input('Gutter · px', 'gutter'));
-        const reading = el('select', { onchange: e => this.change(() => this.page.reading = e.target.value) }, el('option', { value: 'rtl', text: 'Right → left' }), el('option', { value: 'ltr', text: 'Left → right' })); reading.value = this.page.reading;
-        this.properties.append(field('Reading direction', reading), button('Sort by reading order', () => this.change(() => {
-            const sorted = [...this.page.panels].sort((a, b) => {
-                const aa = bounds(a.polygon), bb = bounds(b.polygon);
-                return Math.abs(aa[1] - bb[1]) > 0.05 ? aa[1] - bb[1] : (aa[0] - bb[0]) * (this.page.reading === 'rtl' ? -1 : 1);
-            }); sorted.forEach((p, i) => p.order = i + 1);
-        })), field('Snap to guides', el('input', { type: 'checkbox', checked: this.page.snap, onchange: e => this.change(() => this.page.snap = e.target.checked) })));
-        for (const [label, key] of [['Vertical guides · %', 'guidesX'], ['Horizontal guides · %', 'guidesY']]) this.properties.append(field(label, el('input', { value: this.page[key].map(x => +(x * 100).toFixed(2)).join(', '), onchange: e => this.change(() => this.page[key] = e.target.value.split(',').filter(x => x.trim()).map(x => Number(x.trim()) / 100).filter(Number.isFinite), false) })));
-        this.properties.append(iconButton('Add panel', 'plus', () => this.addPanel()));
+        const control = (key, type, owner, attrs = {}) => el('input', { type, value: owner[key], ...attrs,
+            onchange: e => { if (type === 'number' && !Number.isFinite(Number(e.target.value))) return; this.change(() => { owner[key] = type === 'number' ? Number(e.target.value) : e.target.value; }, false); } });
+        const input = (label, key, type = 'number', owner = this.page, attrs = {}) => field(label, control(key, type, owner, attrs));
+        const range = (label, key, owner, bounds, attrs = {}) => slider(label, control(key, 'number', owner, attrs), bounds);
+        const percent = (label, value, apply, attrs = {}) => field(label, el('input', { type: 'number', value: +(value * 100).toFixed(2), step: 0.5, ...attrs,
+            onchange: e => { const v = Number(e.target.value) / 100; if (e.target.value !== '' && Number.isFinite(v)) this.change(() => apply(v), false); } }));
+        const grid = (...children) => el('div', { class: 'mm-grid2' }, ...children);
+        const section = (title, ...children) => el('section', { class: 'mm-props-section' }, el('h3', { text: title }), ...children);
+        const guides = (label, key) => el('div', { class: 'mm-field' }, el('span', { text: label }), el('div', { class: 'mm-chips' },
+            ...this.page[key].map((value, i) => button(`${+(value * 100).toFixed(2)} % ×`, () => this.change(() => this.page[key].splice(i, 1)), { 'aria-label': `Remove ${label.toLowerCase()} at ${+(value * 100).toFixed(2)} %` })),
+            el('input', { type: 'number', min: 0, max: 100, step: 0.5, placeholder: 'Add %', 'aria-label': `Add ${label.toLowerCase()} · %`,
+                onchange: e => { const value = Number(e.target.value) / 100; if (e.target.value !== '' && Number.isFinite(value)) this.change(() => this.page[key] = [...this.page[key], value].sort((a, b) => a - b)); } })));
+        const page = section('Page', input('Name', 'name', 'text'), sizeControls(this.page, size => { this.change(() => Object.assign(this.page, size, imageDimensions(size, 1)), false); this.fit(); }),
+            iconButton('Change orientation', 'orientation', () => { this.change(() => { [this.page.width, this.page.height] = [this.page.height, this.page.width]; this.page.aspect_ratio = this.page.aspect_ratio.split(':').reverse().join(':'); }); this.fit(); }, {}, true),
+            grid(input('Background', 'background', 'color'), input('Border color', 'borderColor', 'color')), range('Border · px', 'border', this.page, [0, 40]), range('Gutter · px', 'gutter', this.page, [0, 120]),
+            segmented('Reading direction', [['rtl', 'Right → left'], ['ltr', 'Left → right']], this.page.reading, value => this.change(() => this.page.reading = value)),
+            button('Sort by reading order', () => this.change(() => {
+                const sorted = [...this.page.panels].sort((a, b) => {
+                    const aa = bounds(a.polygon), bb = bounds(b.polygon);
+                    return Math.abs(aa[1] - bb[1]) > 0.05 ? aa[1] - bb[1] : (aa[0] - bb[0]) * (this.page.reading === 'rtl' ? -1 : 1);
+                }); sorted.forEach((p, i) => p.order = i + 1);
+            })), toggle('Snap to guides', el('input', { type: 'checkbox', checked: this.page.snap, onchange: e => this.change(() => this.page.snap = e.target.checked) })),
+            guides('Vertical guides', 'guidesX'), guides('Horizontal guides', 'guidesY'), iconButton('Add panel', 'plus', () => this.addPanel(), {}, true));
+        this.properties.replaceChildren();
         const p = this.panel;
         if (p) {
-            this.properties.append(el('h3', { text: `Panel ${p.order}` }), input('Reading order', 'order', 'number', p), input('Layer', 'z', 'number', p));
             const assign = el('select', { onchange: e => { this.change(() => p.asset = e.target.value || null); this.loadImages(); } }, el('option', { value: '', text: 'No image' }),
                 ...this.studio.project.assets.filter(a => a.kind === 'panels' && !a.deleted).map(a => el('option', { value: a.id, text: a.name })));
-            assign.value = p.asset || ''; this.properties.append(field('Panel', assign));
-            const fit = el('select', { onchange: e => this.change(() => p.fit = e.target.value) }, el('option', { value: 'cover', text: 'Cover' }), el('option', { value: 'contain', text: 'Contain' })); fit.value = p.fit;
-            this.properties.append(field('Image fit', fit), input('Image zoom', 'zoom', 'number', p, { step: 0.05, min: 0.05 }), input('X offset', 'dx', 'number', p, { step: 0.05 }), input('Y offset', 'dy', 'number', p, { step: 0.05 }));
+            assign.value = p.asset || '';
             const b = bounds(p.polygon);
-            for (const [label, index] of [['X · %', 0], ['Y · %', 1], ['Width · %', 2], ['Height · %', 3]]) {
-                const value = (index < 2 ? b[index] : b[index] - b[index - 2]) * 100;
-                this.properties.append(field(label, el('input', { type: 'number', 'data-bounds': index, value: +value.toFixed(2), step: 0.5, onchange: e => this.change(() => {
-                    const b = bounds(p.polygon), v = Number(e.target.value) / 100;
+            this.properties.append(section(`Panel ${p.order}`, grid(input('Reading order', 'order', 'number', p), input('Layer', 'z', 'number', p)), field('Panel', assign),
+                segmented('Image fit', [['cover', 'Cover'], ['contain', 'Contain']], p.fit, value => this.change(() => p.fit = value)),
+                range('Image zoom', 'zoom', p, [0.05, 4], { step: 0.05, min: 0.05 }), range('X offset', 'dx', p, [-1, 1], { step: 0.05 }), range('Y offset', 'dy', p, [-1, 1], { step: 0.05 }),
+                grid(...[['X · %', 0], ['Y · %', 1], ['Width · %', 2], ['Height · %', 3]].map(([label, index]) => percent(label, index < 2 ? b[index] : b[index] - b[index - 2], v => {
+                    const b = bounds(p.polygon);
                     p.polygon = p.polygon.map(pt => {
                         const point = [...pt], axis = index % 2;
                         point[axis] = index < 2 ? pt[axis] + v - b[axis] : b[axis] + (pt[axis] - b[axis]) * v / (b[axis + 2] - b[axis]); return point;
                     });
-                }, false) })));
-            }
-            p.polygon.forEach((vertex, i) => {
-                this.properties.append(field(`Vertex ${i + 1} · X,Y %`, el('input', { 'data-vertex-index': i, value: vertex.map(v => +(v * 100).toFixed(2)).join(', '), onchange: e => {
-                    const point = e.target.value.split(',').map(v => Number(v) / 100);
-                    if (point.length === 2 && point.every(Number.isFinite)) this.change(() => p.polygon[i] = point, false);
-                } })));
-            });
-            this.properties.append(button('Add vertex', () => this.change(() => { const a = p.polygon[0], b = p.polygon[1]; p.polygon.splice(1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]); })), button('Remove last vertex', () => { if (p.polygon.length > 3) this.change(() => p.polygon.pop()); }), iconButton('Duplicate panel', 'copy', () => this.duplicate()), iconButton('Delete panel', 'trash', () => this.remove()));
+                }, { 'data-bounds': index }))),
+                el('details', {}, el('summary', { text: `Vertices · ${p.polygon.length}` }),
+                    ...p.polygon.map((vertex, i) => grid(...['X', 'Y'].map((axis, a) => percent(`Vertex ${i + 1} ${axis} · %`, vertex[a], v => p.polygon[i][a] = v, { 'data-vertex-index': i, 'data-axis': a })))),
+                    el('div', { class: 'mm-row' }, button('Add vertex', () => this.change(() => { const a = p.polygon[0], b = p.polygon[1]; p.polygon.splice(1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]); })),
+                        button('Remove last vertex', () => { if (p.polygon.length > 3) this.change(() => p.polygon.pop()); }, { disabled: p.polygon.length <= 3 }))),
+                el('div', { class: 'mm-row' }, iconButton('Duplicate panel', 'copy', () => this.duplicate()), iconButton('Delete panel', 'trash', () => this.remove(), { class: 'mm-icon-button mm-danger' }))));
         }
         const bubble = this.bubble;
         if (bubble) {
@@ -377,35 +381,34 @@ export class PageEditor {
                 onfocus: () => textBefore = clone(this.page),
                 oninput: e => { bubble.text = e.target.value; this.studio.saveSoon(); this.draw(); },
                 onchange: () => { this.commit(textBefore); this.draw(); } });
-            this.properties.append(el('h3', { text: 'Dialogue / thought box' }), field('Bubble style', style), field('Bubble text', el('div', { class: 'mm-prompt-field' }, text,
+            const tail = !['caption', 'rounded'].includes(bubble.type);
+            this.properties.append(section('Dialogue / thought box', field('Bubble style', style), field('Bubble text', el('div', { class: 'mm-prompt-field' }, text,
                 iconButton('Enhance dialogue', 'sparkles', () => this.studio.action(() => this.studio.run('enhance', 'design', null, 'dialogue', { page: this.page.id, bubble: bubble.id, text: bubble.text })),
-                    { 'data-run': 'enhance', disabled: !this.studio.textGeneratorAvailable(), title: 'Enhance dialogue with the global text generator' }))), field('Font', font),
-                button('Install font…', () => chooseFile('.ttf,.otf,.woff,.woff2', files => this.studio.action(async () => {
+                    { 'data-run': 'enhance', disabled: !this.studio.textGeneratorAvailable(), title: 'Enhance dialogue with the global text generator' }))),
+                el('div', { class: 'mm-row' }, field('Font', font), button('Install font…', () => chooseFile('.ttf,.otf,.woff,.woff2', files => this.studio.action(async () => {
                     const file = files[0]; await new FontFace('MangaFontValidation', await file.arrayBuffer()).load();
                     const form = new FormData(); form.append('font', file);
                     const installed = await request('/fonts', form, 'POST'); this.studio.fonts = await request('/fonts');
                     this.change(() => bubble.font = installed.family); await this.loadImages();
-                }))),
-                input('Font size · px', 'fontSize', 'number', bubble, { min: 1 }), el('small', { text: 'Text wraps and shrinks automatically to fit the box.' }),
-                input('Layer', 'z', 'number', bubble), input('Fill color', 'fill', 'color', bubble),
-                field('Fill opacity · %', el('input', { type: 'number', value: (bubble.fillOpacity ?? 1) * 100, min: 0, max: 100, step: 5,
-                    onchange: e => { const value = Number(e.target.value) / 100; if (Number.isFinite(value)) this.change(() => bubble.fillOpacity = Math.max(0, Math.min(1, value)), false); } })),
-                input('Text color', 'color', 'color', bubble),
-                field('Show border', el('input', { type: 'checkbox', checked: bubble.borderEnabled, onchange: e => this.change(() => bubble.borderEnabled = e.target.checked) })),
-                input('Bubble border · px', 'border', 'number', bubble, { min: 0 }), input('Bubble border color', 'stroke', 'color', bubble));
-            for (const [label, key] of [['Bubble X · %', 'x'], ['Bubble Y · %', 'y'], ['Bubble width · %', 'w'], ['Bubble height · %', 'h']]) {
-                this.properties.append(field(label, el('input', { type: 'number', value: +(bubble[key] * 100).toFixed(2), step: 0.5, ...(['w', 'h'].includes(key) ? { min: 0.5 } : {}),
-                    onchange: e => { const value = Number(e.target.value) / 100; if (Number.isFinite(value)) this.change(() => bubble[key] = ['w', 'h'].includes(key) ? Math.max(0.005, value) : value, false); } })));
-            }
-            if (!['caption', 'rounded'].includes(bubble.type)) {
-                this.properties.append(field('Show tail', el('input', { type: 'checkbox', checked: bubble.tail, onchange: e => this.change(() => bubble.tail = e.target.checked) })));
-                for (const [label, key] of [['Tail X · % of box', 'tailX'], ['Tail Y · % of box', 'tailY']]) this.properties.append(field(label,
-                    el('input', { type: 'number', value: bubble[key] * 100, step: 5, onchange: e => { const value = Number(e.target.value) / 100; if (Number.isFinite(value)) this.change(() => bubble[key] = value, false); } })));
-            }
-            this.properties.append(iconButton('Duplicate bubble', 'copy', () => this.duplicate()), iconButton('Delete bubble', 'trash', () => this.remove()));
+                })))),
+                range('Font size · px', 'fontSize', bubble, [6, 160], { min: 1 }), el('small', { text: 'Text wraps and shrinks automatically to fit the box.' }),
+                grid(input('Fill color', 'fill', 'color', bubble), input('Text color', 'color', 'color', bubble)),
+                slider('Fill opacity · %', el('input', { type: 'number', value: (bubble.fillOpacity ?? 1) * 100, min: 0, max: 100, step: 5,
+                    onchange: e => { const value = Number(e.target.value) / 100; if (Number.isFinite(value)) this.change(() => bubble.fillOpacity = Math.max(0, Math.min(1, value)), false); } }), [0, 100]),
+                toggle('Show border', el('input', { type: 'checkbox', checked: bubble.borderEnabled, onchange: e => this.change(() => bubble.borderEnabled = e.target.checked) })),
+                grid(input('Bubble border · px', 'border', 'number', bubble, { min: 0 }), input('Bubble border color', 'stroke', 'color', bubble)),
+                grid(...[['Bubble X · %', 'x'], ['Bubble Y · %', 'y'], ['Bubble width · %', 'w'], ['Bubble height · %', 'h']].map(([label, key]) => percent(label, bubble[key],
+                    value => bubble[key] = ['w', 'h'].includes(key) ? Math.max(0.005, value) : value, ['w', 'h'].includes(key) ? { min: 0.5 } : {}))),
+                tail ? toggle('Show tail', el('input', { type: 'checkbox', checked: bubble.tail, onchange: e => this.change(() => bubble.tail = e.target.checked) })) : null,
+                ...(tail ? [['Tail X · % of box', 'tailX'], ['Tail Y · % of box', 'tailY']].map(([label, key]) => slider(label,
+                    el('input', { type: 'number', value: bubble[key] * 100, step: 5, onchange: e => { const value = Number(e.target.value) / 100; if (Number.isFinite(value)) this.change(() => bubble[key] = value, false); } }), [-100, 250])) : []),
+                grid(input('Layer', 'z', 'number', bubble)),
+                el('div', { class: 'mm-row' }, iconButton('Duplicate bubble', 'copy', () => this.duplicate()), iconButton('Delete bubble', 'trash', () => this.remove(), { class: 'mm-icon-button mm-danger' }))));
         }
-        this.properties.append(el('h3', { text: 'Panels · select' }), ...[...this.page.panels].sort((a, b) => a.order - b.order).map(p => button(`${p.order}. ${p.asset ? this.studio.project.assets.find(a => a.id === p.asset)?.name || 'Missing' : 'No image'}`, () => { this.selected = p.id; this.props(); this.draw(); })));
-        this.properties.append(el('h3', { text: 'Bubbles · select' }), el('div', { class: 'mm-bubble-list' }, ...[...this.page.bubbles].sort((a, b) => a.z - b.z).map((b, i) => button(`${i + 1}. ${b.type} · ${b.text.slice(0, 30)}`, () => { this.setMode('select'); this.selected = b.id; this.props(); this.draw(); }, { 'data-bubble-id': b.id }))));
+        this.properties.append(page, section('Panels · select', el('div', { class: 'mm-list' }, ...[...this.page.panels].sort((a, b) => a.order - b.order).map(p => button(`${p.order}. ${p.asset ? this.studio.project.assets.find(a => a.id === p.asset)?.name || 'Missing' : 'No image'}`,
+            () => { this.selected = p.id; this.props(); this.draw(); }, { 'aria-pressed': String(p.id === this.selected) })))),
+            section('Bubbles · select', el('div', { class: 'mm-list mm-bubble-list' }, ...[...this.page.bubbles].sort((a, b) => a.z - b.z).map((b, i) => button(`${i + 1}. ${b.type} · ${b.text.slice(0, 30)}`,
+                () => { this.setMode('select'); this.selected = b.id; this.props(); this.draw(); }, { 'data-bubble-id': b.id, 'aria-pressed': String(b.id === this.selected) })))));
     }
     syncGeometryFields() {
         const p = this.panel; if (!p) return;
@@ -413,7 +416,7 @@ export class PageEditor {
         for (const input of this.properties.querySelectorAll('[data-bounds]')) {
             const i = Number(input.dataset.bounds); input.value = +((i < 2 ? b[i] : b[i] - b[i - 2]) * 100).toFixed(2);
         }
-        for (const input of this.properties.querySelectorAll('[data-vertex-index]')) input.value = p.polygon[Number(input.dataset.vertexIndex)].map(v => +(v * 100).toFixed(2)).join(', ');
+        for (const input of this.properties.querySelectorAll('[data-vertex-index]')) input.value = +(p.polygon[Number(input.dataset.vertexIndex)][Number(input.dataset.axis)] * 100).toFixed(2);
     }
     scale(value) { this.zoom = Math.max(0.03, Math.min(3, value)); this.canvas.style.width = `${this.page.width * this.zoom}px`; this.canvas.style.height = `${this.page.height * this.zoom}px`; this.draw(); }
     fit() { requestAnimationFrame(() => { if (!this.abort.signal.aborted) { this.scale(Math.min((this.viewport.clientWidth - 64) / this.page.width, (this.viewport.clientHeight - 64) / this.page.height)); this.center(); } }); }

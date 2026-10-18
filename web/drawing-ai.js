@@ -3,6 +3,7 @@ import { el, button, field, request, uuid } from './client.js';
 import { buildPrompt, options } from './prompts.js';
 import { inheritModels } from './models.js';
 import { mangaControls } from './manga-panel.js';
+import { segmented, slider, toggle, seed } from './controls.js';
 import { buildMangaPrompt } from './manga-prompt.js';
 
 export function sketchControls(studio, kind, project, send, busyChanged) {
@@ -41,8 +42,8 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     const generate = button('Generate Sketch to Art', () => start(), { class: 'mm-primary', disabled: true });
     const cancel = button('Cancel generation', () => stop(), { disabled: true });
     const preview = button('Update region preview', () => { if (!active) send('manga-drawing-snapshot', { token: 'preview' }); }, { disabled: true });
-    const regionMode = el('select', { 'aria-label': 'Drawing area', onchange: event => { cfg.region_mode = event.target.value; if (cfg.region_mode === 'canvas') resetMaskMode(); changed(); paintPreview(); } },
-        el('option', { value: 'canvas', text: 'Whole canvas' }), el('option', { value: 'region', text: 'Selected region' })); regionMode.value = cfg.region_mode || 'canvas';
+    const regionMode = segmented('Drawing area', [['canvas', 'Whole canvas'], ['region', 'Selected region']], cfg.region_mode || 'canvas',
+        value => { cfg.region_mode = value; if (cfg.region_mode === 'canvas') resetMaskMode(); changed(); paintPreview(); });
     const coordinates = el('div', { class: 'mm-sketch-coordinates' }); const inputs = {};
     for (const [key, label] of [['x', 'X'], ['y', 'Y'], ['width', 'Region width'], ['height', 'Region height']]) {
         inputs[key] = el('input', { type: 'number', 'aria-label': label, step: 1, value: cfg.region?.[key] ?? 0, onchange: () => {
@@ -51,13 +52,12 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     }
     const maskCanvas = document.createElement('canvas');
     const maskEnabled = el('input', { type: 'checkbox', 'aria-label': 'Use stitch mask', onchange: () => { changed(); paintPreview(); } });
-    const maskTool = el('select', { 'aria-label': 'Preview tool' },
-        el('option', { value: 'region', text: 'Select region' }), el('option', { value: 'paint', text: 'Paint mask' }), el('option', { value: 'erase', text: 'Erase mask' }));
+    const maskTool = segmented('Preview tool', [['region', 'Select region', 'crop'], ['paint', 'Paint mask', 'pencil'], ['erase', 'Erase mask', 'clear']], 'region', () => {});
     const maskSize = el('input', { type: 'number', 'aria-label': 'Mask brush size · px', value: 48, min: 1, step: 1 });
     const cropMask = el('input', { type: 'checkbox', checked: true, 'aria-label': 'Crop to mask bounds' });
     const maskControls = el('details', {}, el('summary', { text: 'Crop and stitch mask' }),
         el('small', { text: 'Paint on the preview to mark areas to replace. Erase protects areas. The mask controls stitching, not model conditioning. Masks stay in this editor session.' }),
-        field('Use stitch mask', maskEnabled), field('Preview tool', maskTool), field('Mask brush size · px', maskSize), field('Crop to mask bounds', cropMask),
+        toggle('Use stitch mask', maskEnabled), maskTool, slider('Mask brush size · px', maskSize, [1, 256]), toggle('Crop to mask bounds', cropMask),
         button('Clear mask', () => { maskCanvas.getContext('2d').clearRect(0, 0, maskCanvas.width, maskCanvas.height); resetMaskMode(); changed(); paintPreview(); }));
     function resetMaskMode() { maskEnabled.checked = false; maskTool.value = 'region'; }
     const presets = el('div', { class: 'mm-row' });
@@ -72,27 +72,26 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         if (regionMode.value === 'canvas') resetMaskMode();
         for (const key of Object.keys(inputs)) inputs[key].value = cfg.region?.[key] ?? 0;
         blend.replaceChildren(el('summary', { text: 'Layer blending' }));
-        for (const [key, label] of [['feather', 'Edge feather · px'], ['blend_opacity', 'Blend opacity · %']]) blend.append(field(label,
-            el('input', { type: 'number', 'aria-label': label, value: cfg[key] ?? (key === 'feather' ? 16 : 100), step: 1, onchange: event => { cfg[key] = Number(event.target.value); changed(); } })));
+        for (const [key, label, range] of [['feather', 'Edge feather · px', [0, 128]], ['blend_opacity', 'Blend opacity · %', [0, 100]]]) blend.append(slider(label,
+            el('input', { type: 'number', 'aria-label': label, value: cfg[key] ?? (key === 'feather' ? 16 : 100), step: 1, onchange: event => { cfg[key] = Number(event.target.value); changed(); } }), range));
         prompt.replaceChildren(el('summary', { text: 'Prompt' })); studio.promptControls(prompt, cfg, changed, true);
         sampling.replaceChildren(); studio.samplingControls(sampling, cfg, 'krea_edit', changed, 'sketch');
-        sampling.append(field('Seed', el('input', { type: 'number', 'aria-label': 'Sketch seed', value: cfg.seed, step: 1, onchange: event => { cfg.seed = Number(event.target.value); changed(); } })),
-            field('Random seed', el('input', { type: 'checkbox', checked: cfg.random_seed, onchange: event => { cfg.random_seed = event.target.checked; changed(); } })));
+        sampling.append(seed('Seed', cfg, changed));
         renderModels();
     }
     const manga = mangaControls(studio, kind, () => { revision++; studio.saveSoon(); });
     const heading = el('h3', { text: title() });
-    const tool = el('select', { 'aria-label': 'Drawing workflow', onchange: () => {
+    const tool = segmented('Drawing workflow', [['sketch', 'Sketch to Art'], ['manga', 'Art to Manga Panel']], 'sketch', () => {
         mode = tool.value; revision++; realtime.checked = false; pending = false;
         heading.textContent = title(); generate.textContent = `Generate ${title()}`;
         element.setAttribute('aria-label', `${title()} controls`);
         workflowSettings.replaceChildren(mode === 'manga' ? manga.element : sketchSettings);
         status.textContent = mode === 'manga' ? 'Convert the canvas or selected region into an editable manga layer.' : 'Generate the canvas or a selected region as a new AI layer.';
-    } }, el('option', { value: 'sketch', text: 'Sketch to Art' }), el('option', { value: 'manga', text: 'Art to Manga Panel' }));
-    const sketchSettings = el('div', {}, presets, blend, prompt, sampling, models, field('Realtime on stroke release', realtime));
+    });
+    const sketchSettings = el('div', {}, presets, blend, prompt, sampling, models, toggle('Realtime on stroke release', realtime));
     const workflowSettings = el('div', {}, sketchSettings);
-    const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, field('Drawing workflow', tool), heading,
-        field('Drawing area', regionMode), el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, workflowSettings, el('div', { class: 'mm-toolbar' }, generate, cancel), status);
+    const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, tool, heading,
+        regionMode, el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, workflowSettings, el('div', { class: 'mm-run-bar' }, el('div', { class: 'mm-row' }, generate, cancel), status));
     renderSettings();
     function update() { generate.disabled = !ready || !!active; preview.disabled = !ready || !!active; cancel.disabled = !active || stopping; tool.disabled = !!active; busyChanged(); }
     function region() {

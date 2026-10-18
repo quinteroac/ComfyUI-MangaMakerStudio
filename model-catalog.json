@@ -70,6 +70,43 @@
         "scheduler": "simple"
       },
       "workflow": "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json"
+    },
+    "moss": {
+      "name": "moss",
+      "artifacts": [],
+      "local": true,
+      "workflow": "moss-base-8-steps-lora.json",
+      "settings": {
+        "model": "moss/moss_image_sft_int8_convrot.safetensors",
+        "encoder": "moss/qwen3.5_9b_int8_convrot.safetensors",
+        "vae": "flux2-vae.safetensors",
+        "encoder_type": "moss_image",
+        "weight_dtype": "default",
+        "encoder_device": "default",
+        "accelerator_lora": "moss/lora.safetensors",
+        "steps": 8,
+        "cfg": 1,
+        "sampler": "er_sde",
+        "scheduler": "simple"
+      }
+    },
+    "anima": {
+      "name": "anima",
+      "artifacts": [],
+      "local": true,
+      "workflow": "Anima_SetGet_Organizado.json",
+      "settings": {
+        "model": "anima/anima-turbo-v1.0-int8-convrot.safetensors",
+        "encoder": "qwen_3_06b_base.safetensors",
+        "vae": "wan_2.1_vae.safetensors",
+        "encoder_type": "qwen_image",
+        "weight_dtype": "default",
+        "encoder_device": "default",
+        "steps": 8,
+        "cfg": 1,
+        "sampler": "er_sde",
+        "scheduler": "simple"
+      }
     }
   },
   "artifacts": [

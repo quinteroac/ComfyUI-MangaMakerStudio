@@ -20,6 +20,8 @@ Studio is organized around assets and projects: references describe the cast and
 
 The ComfyUI graph remains available outside Studio. Generation runs through the existing queue, while importing, drawing and layout editing do not need a diffusion model.
 
+In **References** and **Panels**, select **moss** or **anima** under **Engine** to generate from text using the corresponding local workflow settings. Both support prompts, presets, AR/MP, seed, sampling overrides and additional model LoRAs. These workflows do not accept connected images; reuse a saved reference prompt through its image menu. Anima also exposes its negative prompt under **Sampling**. Model filenames can be changed under **Models and advanced settings**.
+
 ## Working with references and panels
 
 A project keeps references and panels in separate galleries. References can be connected to generation without placing them on a page. Panels can be reused in different layouts; positioning or cropping them in the editor does not alter the source file.

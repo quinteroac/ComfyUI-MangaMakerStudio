@@ -1,6 +1,6 @@
 import { initialSettings } from './prompts.js';
 
-export const modelFields = ['model', 'encoder', 'vae', 'identity_lora', 'encoder_type', 'analysis_encoder', 'analysis_encoder_type', 'adapter', 'encoding', 'weight_dtype', 'encoder_device', 'attention', 'cache_device', 'cache_dtype',
+export const modelFields = ['model', 'encoder', 'vae', 'identity_lora', 'accelerator_lora', 'encoder_type', 'analysis_encoder', 'analysis_encoder_type', 'adapter', 'encoding', 'weight_dtype', 'encoder_device', 'attention', 'cache_device', 'cache_dtype',
     'ref_boost', 'ref_boost_a', 'fit_mode', 'grounding_px', 'grounding_system_prompt', 'steps', 'cfg', 'sampler', 'scheduler', 'shift'];
 const defined = value => value !== undefined && value !== null && value !== '';
 export const modelValues = value => Object.fromEntries(modelFields.filter(key => defined(value?.[key])).map(key => [key, structuredClone(value[key])]));

@@ -1,3 +1,9 @@
+## Moss and Anima generation — October 17, 2026
+
+- Eight Moss/Anima graphs passed workflow sampling, conditioning, native latent selection, model-only LoRA order/deduplication, model errors and preset/global inheritance checks. All graphs match the running ComfyUI's required input contracts and linked output types. All seven workflow weight selections are registered locally.
+- Chromium passed engine selection in References and Panels, inherited encoders and Moss LoRA, Anima negative prompt, AR/MP and four generations through a simulated queue with isolated temporary storage. The open ComfyUI graph stayed unchanged; no JavaScript errors occurred.
+- Existing 85 graph checks, schema validation, model inheritance checks and 14 Python tests passed. No weights were downloaded or loaded and no actual inference was run. Restart ComfyUI when idle and reload the browser to load the updated catalog and frontend.
+
 ## Art to Manga Panel — October 17, 2026
 
 - Four Manga-Lite/QWEN-Manga graphs (with/without Manga Lineart) match current ComfyUI input contracts, linked output types and MangaScreen schemas. The full path preserves the upstream sigma schedule and encoder source latent.

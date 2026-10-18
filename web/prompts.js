@@ -154,6 +154,9 @@ export const initialSettings = (engine) => ({
     analysis_encoder: '', analysis_encoder_type: 'stable_diffusion', finish_mode: 'refine',
     ...(engine === 'krea_edit' ? { encoding: 'native', encoder_type: 'krea2', steps: 4, latent_reference: '' } : {}),
     ...(['krea', 'krea_edit'].includes(engine) ? { shift: 1.15 } : {}),
+    ...(['moss', 'anima'].includes(engine) ? { steps: 8, sampler: 'er_sde', scheduler: 'simple',
+        encoder_type: engine === 'moss' ? 'moss_image' : 'qwen_image', accelerator_lora: engine === 'moss' ? 'moss/lora.safetensors' : '',
+        negative: engine === 'anima' ? 'score_6, score_5, score_4, worst quality, low quality, text, censored, deformed, bad hand, blurry, (watermark),' : '' } : {}),
 });
 
 export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) {
@@ -199,6 +202,29 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         images[0] = add('ImageScale', { image: images[0], upscale_method: 'lanczos', ...imageDimensions(config, engine === 'qwen' ? 32 : 8), crop: 'center' });
     }
     const prompt = composePrompt(config);
+    if (engine === 'moss' || engine === 'anima') {
+        if (imagePaths.length) throw new Error('This workflow generates from text. Use an editing engine to connect visual references.');
+        let model = add('UNETLoader', { unet_name: check('UNETLoader', 'unet_name', config.model, 'Model'), weight_dtype: config.weight_dtype });
+        const clip = load(config.encoder, config.encoder_type);
+        const vae = add('VAELoader', { vae_name: check('VAELoader', 'vae_name', config.vae, 'VAE') });
+        if (engine === 'moss' && config.accelerator_lora) {
+            const override = config.loras.find(l => l.enabled && l.name === config.accelerator_lora);
+            model = add('LoraLoaderModelOnly', { model, lora_name: check('LoraLoaderModelOnly', 'lora_name', config.accelerator_lora, 'Eight-step LoRA'), strength_model: Number(override?.model ?? 1) });
+        }
+        for (const lora of config.loras.filter(l => l.enabled)) {
+            if (engine === 'moss' && lora.name === config.accelerator_lora) continue;
+            model = add('LoraLoaderModelOnly', { model, lora_name: check('LoraLoaderModelOnly', 'lora_name', lora.name, 'LoRA'), strength_model: Number(lora.model) });
+        }
+        if (config.attention) model = add('ModelAttentionBackend', { model, attention: check('ModelAttentionBackend', 'attention', config.attention, 'Attention') });
+        const positive = add('CLIPTextEncode', { clip, text: prompt });
+        const negative = engine === 'moss' ? add('ConditioningZeroOut', { conditioning: positive }) : add('CLIPTextEncode', { clip, text: config.negative });
+        const latent = add(engine === 'moss' ? 'EmptyFlux2LatentImage' : 'EmptyLatentImage', { ...imageDimensions(config, engine === 'moss' ? 16 : 8), batch_size: 1 });
+        const samples = add('KSampler', { model, positive, negative, latent_image: latent, seed: Number(config.seed), steps: Number(config.steps),
+            cfg: Number(config.cfg), sampler_name: config.sampler, scheduler: config.scheduler, denoise: 1 });
+        const decoded = add('VAEDecode', { samples, vae });
+        const output = add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
+        return { graph, outputNode: output[0] };
+    }
     let model = add('UNETLoader', { unet_name: check('UNETLoader', 'unet_name', config.model, 'Model'), weight_dtype: config.weight_dtype });
     let clip = load(config.encoder, config.encoder_type);
     const vae = add('VAELoader', { vae_name: check('VAELoader', 'vae_name', config.vae, 'VAE') });

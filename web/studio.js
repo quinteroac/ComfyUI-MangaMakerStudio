@@ -8,7 +8,7 @@ import { modelFields, globalModels, inheritModels, applyPreset, savedPreset } fr
 import { openDrawing } from './drawing.js';
 
 const spaces = { references: 'References', panels: 'Panels', refine: 'Refinement', design: 'Page layout', finish: 'Finishing' };
-const engines = { krea: 'Krea2', krea_edit: 'Krea2 Edit', qwen: 'Qwen Image 2.1' };
+const engines = { krea: 'Krea2', krea_edit: 'Krea2 Edit', qwen: 'Qwen Image 2.1', moss: 'moss', anima: 'anima' };
 const textTasks = { enhance: 'Enhance section', describe: 'Create reference prompt' };
 const clone = x => structuredClone(x);
 
@@ -190,6 +190,7 @@ export class Studio {
             this.picker('Text encoder', options(this.defs, 'CLIPLoader', 'clip_name'), cfg.encoder, set('encoder')),
             encoderType,
             this.picker('VAE', options(this.defs, 'VAELoader', 'vae_name'), cfg.vae, set('vae')));
+        if (engine === 'moss') technical.append(this.picker('Eight-step LoRA', options(this.defs, 'LoraLoaderModelOnly', 'lora_name'), cfg.accelerator_lora, set('accelerator_lora')));
         if (engine === 'krea_edit' && space !== 'sketch') technical.append(this.picker('Identity Edit LoRA', options(this.defs, 'LoraLoaderModelOnly', 'lora_name'), cfg.identity_lora, set('identity_lora')));
         if (engine === 'krea' || engine === 'krea_edit') {
             const adapter = this.picker('Bridge / adapter', options(this.defs, 'Krea2Qwen8BAdapter', 'adapter_name'), cfg.adapter, set('adapter')); adapter.hidden = cfg.encoding !== 'bridge';
@@ -222,6 +223,11 @@ export class Studio {
         const panel = el('div', { class: 'mm-official-models' }); host.append(panel);
         const render = () => {
             const profile = this.catalog.profiles[engine], state = this.catalog.downloads[engine];
+            if (profile.local) {
+                panel.replaceChildren(el('h4', { text: 'Local workflow setup' }), el('p', { text: `${profile.workflow} · uses installed weights. Select models above if their filenames differ.` }),
+                    button('Use workflow models and sampling', () => this.action(async () => { await this.useOfficialModels(engine); this.resetViews(); this.switch(this.active); render(); })));
+                return;
+            }
             const missing = this.catalog.artifacts.filter(a => profile.artifacts.includes(a.id) && !a.installed);
             const active = state && ['queued', 'downloading'].includes(state.state);
             panel.replaceChildren(el('h4', { text: 'Official model setup' }), el('a', { text: 'Workflow / recommended settings', href: profile.workflow, target: '_blank', rel: 'noopener noreferrer' }),
@@ -240,7 +246,7 @@ export class Studio {
         Object.assign(settings.models[engine], values);
         this.settings = await request('/settings', settings, 'POST'); this.defs = await api.getNodeDefs();
         if (this.globalDraft) { this.globalDraft.models[engine] = clone(this.settings.models[engine]); this.globalModelRender(); }
-        this.status.textContent = `${engines[engine]} · Official models and recommended sampling applied globally`;
+        this.status.textContent = `${engines[engine]} · Workflow models and sampling applied globally`;
     }
     async pollDownloads() {
         if (this.downloadPolling || !this.pendingDownloads.size) return;
@@ -267,7 +273,7 @@ export class Studio {
                 field('Enabled', el('input', { type: 'checkbox', checked: l.enabled, onchange: e => { l.enabled = e.target.checked; changed(); refresh(); } })),
                 this.picker('LoRA file', options(this.defs, 'LoraLoader', 'lora_name'), l.name, value => { l.name = value; changed(); }),
                 field('Model strength', el('input', { type: 'number', value: l.model, step: 0.05, onchange: e => { l.model = Number(e.target.value); changed(); } })),
-                scope.endsWith(':krea_edit') ? null : field('Encoder strength', el('input', { type: 'number', value: l.clip, step: 0.05, onchange: e => { l.clip = Number(e.target.value); changed(); } })),
+                ['krea_edit', 'moss', 'anima'].some(engine => scope.endsWith(`:${engine}`)) ? null : field('Encoder strength', el('input', { type: 'number', value: l.clip, step: 0.05, onchange: e => { l.clip = Number(e.target.value); changed(); } })),
                 button('↑', () => { if (index) { [cfg.loras[index - 1], cfg.loras[index]] = [l, cfg.loras[index - 1]]; changed(); refresh(); } }, { 'aria-label': 'Move LoRA up' }),
                 button('↓', () => { if (index < cfg.loras.length - 1) { [cfg.loras[index + 1], cfg.loras[index]] = [l, cfg.loras[index + 1]]; changed(); refresh(); } }, { 'aria-label': 'Move LoRA down' }),
                 button('Remove', () => { cfg.loras.splice(index, 1); changed(); refresh(); }))));
@@ -288,7 +294,7 @@ export class Studio {
     samplingControls(host, cfg, engine, changed, space, global = false) {
         const group = el('details', {}, el('summary', { text: 'Sampling' }));
         const set = (key, value) => { cfg[key] = value; if (!global && modelFields.includes(key)) (cfg.model_overrides ||= {})[key] = value; changed(); };
-        for (const [label, key, step] of [['Steps', 'steps', 1], ...(engine === 'qwen' || engine === 'krea_edit' ? [['CFG', 'cfg', 0.1]] : []), ...(engine === 'krea' && space === 'refine' ? [['Denoise', 'denoise', 0.01]] : [])]) {
+        for (const [label, key, step] of [['Steps', 'steps', 1], ...(['qwen', 'krea_edit', 'moss', 'anima'].includes(engine) ? [['CFG', 'cfg', 0.1]] : []), ...(engine === 'krea' && space === 'refine' ? [['Denoise', 'denoise', 0.01]] : [])]) {
             group.append(field(label, el('input', { type: 'number', value: cfg[key], step, onchange: e => set(key, Number(e.target.value)) })));
         }
         if (engine === 'krea' || engine === 'krea_edit') group.append(field('Shift', el('input', { type: 'number', 'aria-label': 'Shift', value: cfg.shift ?? '', step: 0.01,
@@ -301,7 +307,7 @@ export class Studio {
         }
         group.append(this.picker('Sampler', options(this.defs, 'KSampler', 'sampler_name'), cfg.sampler, value => set('sampler', value)),
             this.picker('Scheduler', options(this.defs, 'KSampler', 'scheduler'), cfg.scheduler, value => set('scheduler', value)));
-        if (engine === 'qwen' && !global) group.append(field('Negative prompt', el('textarea', { value: cfg.negative, oninput: e => { cfg.negative = e.target.value; changed(); } })));
+        if (['qwen', 'anima'].includes(engine) && !global) group.append(field('Negative prompt', el('textarea', { value: cfg.negative, oninput: e => { cfg.negative = e.target.value; changed(); } })));
         host.append(group);
     }
     presetChanged(space, host = this.views.get(space)) {
@@ -339,7 +345,7 @@ export class Studio {
     engineSelect(host, space) {
         const state = this.state(space);
         const select = el('select', { 'aria-label': 'Engine', onchange: e => { state.engine = e.target.value; this.saveSoon(); this.rebuild(space); } }, el('option', { value: 'krea', text: 'Krea2' }),
-            ...(['references', 'panels'].includes(space) ? [el('option', { value: 'krea_edit', text: 'Krea2 · edit' })] : []), el('option', { value: 'qwen', text: 'Qwen Image 2.1' })); select.value = state.engine;
+            ...(['references', 'panels'].includes(space) ? [el('option', { value: 'krea_edit', text: 'Krea2 · edit' }), ...['moss', 'anima'].map(value => el('option', { value, text: engines[value] }))] : []), el('option', { value: 'qwen', text: 'Qwen Image 2.1' })); select.value = state.engine;
         host.append(field('Engine', select));
     }
     essentials(host, cfg, space, editing = false) {
@@ -426,7 +432,7 @@ export class Studio {
     resolutionControls(host, cfg, space, editing = false) {
         const box = host.querySelector('.mm-size-controls');
         const latent = cfg.engine === 'krea_edit' && cfg.references.includes(cfg.latent_reference) ? cfg.latent_reference : null;
-        const id = editing ? this.state(space).source : latent || cfg.references[0];
+        const id = editing ? this.state(space).source : ['moss', 'anima'].includes(cfg.engine) ? null : latent || cfg.references[0];
         const source = this.project.assets.find(a => a.id === id);
         const inherited = !!source && cfg.size_mode !== 'manual';
         const changed = () => this.presetChanged(space);
@@ -437,6 +443,7 @@ export class Studio {
             el('small', { text: inherited ? `Inherited from ${source.name}${editing ? '.' : latent ? ', the initial latent reference.' : ', the first reference.'}` : source && (cfg.engine === 'qwen' || editing || latent) ? 'The image is resized to the selected AR and MP with a centered crop; the original file is preserved.' : 'Select the aspect ratio and resolution in megapixels.' }));
     }
     references(host, space, cfg) {
+        if (['moss', 'anima'].includes(cfg.engine)) { host.append(el('small', { text: 'Text-to-image workflow. Reuse a saved reference prompt from its image menu to guide generation.' })); return; }
         const box = el('details', { open: true }, el('summary', { text: 'Connected visual references' }));
         const list = el('div', { class: 'mm-reference-strip' });
         const latent = cfg.engine === 'krea_edit' ? el('select', { 'aria-label': 'Initial latent image', onchange: e => {
@@ -734,7 +741,7 @@ export class Studio {
                 cfg.instruction = `Improve this manga dialogue or thought text for clarity, natural phrasing and concision. Preserve its original language, meaning, speaker voice, names and tone. Do not invent story details or turn it into an image prompt. Return only the improved dialogue, without tags, quotation marks, markdown fences or explanations.\n\nText to improve:\n${dialogue.text}`;
             } else if (textTask) cfg.instruction = textInstruction(operation, this.config(space), section);
             if (cfg.random_seed) cfg.seed = Math.floor(Math.random() * 2 ** 48);
-            let ids = textTask ? operation === 'describe' ? [assetId] : [] : ['refine', 'finish', 'analysis'].includes(operation) ? [state.source].filter(Boolean) : cfg.references;
+            let ids = textTask ? operation === 'describe' ? [assetId] : [] : ['refine', 'finish', 'analysis'].includes(operation) ? [state.source].filter(Boolean) : ['moss', 'anima'].includes(engine) ? [] : cfg.references;
             if (['refine', 'finish', 'analysis'].includes(operation) && !ids.length) throw new Error('Select the original.');
             const unavailable = ids.find(id => !project.assets.some(a => a.id === id && !a.missing && !a.deleted));
             if (unavailable) {

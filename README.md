@@ -1,6 +1,6 @@
 # Manga Maker Studio
 
-**Version:** 0.1.1-alpha.
+**Version:** 0.2.0-alpha.
 
 Manga Maker Studio extends ComfyUI with a workspace for creating manga: organize references and panels in projects, generate images with Krea2, Qwen, Moss or Anima, edit with Krea2 or Qwen, draw with Klecks, and compose pages with custom panel shapes and dialogue. Open **Manga Maker Studio** from the sidebar or the **Manga Maker** menu while keeping your ComfyUI graph intact.
 

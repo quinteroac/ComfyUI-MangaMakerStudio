@@ -41,5 +41,38 @@ for (const engine of ['moss', 'anima']) for (const op of ['references', 'panels'
     applyPreset(cfg, { prompt: 'New prompt' }); inheritModels(cfg, settings.models[engine], engine);
     assert.equal(cfg.steps, 8); assert.equal(cfg.accelerator_lora, settings.models[engine].accelerator_lora || '');
 }
+const layoutBoxes = [
+    { x: 0, y: 0, width: 1, height: 0.5, type: 'object', desc: 'Sunset sky' },
+    { x: 0.25, y: 0.4, width: 0.5, height: 0.6, type: 'character', desc: 'A girl with fennec ears' },
+    { x: 0.1, y: 0.05, width: 0.8, height: 0.1, type: 'text', desc: 'Bold title', text: 'MANGA' }];
+// Every text-to-image engine receives the MOSS-Image layout prompt through its own text encoder.
+for (const [engine, encoder, input, empty] of [['moss', 'CLIPTextEncode', 'text', 'EmptyFlux2LatentImage'], ['anima', 'CLIPTextEncode', 'text', 'EmptyLatentImage'],
+    ['krea', 'CLIPTextEncode', 'text', 'EmptyImage'], ['qwen', 'TextEncodeQwenImage21', 'prompt', 'EmptyImage']]) {
+    const cfg = inheritModels({ ...initialSettings(engine), prompt: 'A rooftop at dusk.', aspect_ratio: '1000:1500', megapixels: 1 }, settings.models[engine], engine);
+    for (const [key, node, field] of [['model', 'UNETLoader', 'unet_name'], ['encoder', 'CLIPLoader', 'clip_name'], ['vae', 'VAELoader', 'vae_name']]) {
+        if (!options(defs, node, field).includes(cfg[key])) cfg[key] = options(defs, node, field)[0];
+    }
+    for (const boxes of [layoutBoxes, layoutBoxes.slice(0, 2), []]) {
+        const built = buildPrompt(defs, 'bbox', engine, { ...cfg, boxes }, [], 'bbox');
+        const ids = Object.keys(built.graph), node = type => built.graph[ids.find(id => built.graph[id].class_type === type)];
+        const layoutId = ids.find(id => built.graph[id].class_type === 'MOSSImageLayoutPrompt'), layout = built.graph[layoutId], create = node('CreateBoundingBoxes'), size = node(empty).inputs;
+        assert.deepEqual(node(encoder).inputs[input], [layoutId, 0], `${engine} encodes the layout prompt`);
+        assert.equal(layout.inputs.prompt, composePrompt(cfg)); assert.deepEqual(layout.inputs.element, [ids.find(id => built.graph[id] === create), 2]);
+        assert.deepEqual([create.inputs.width, create.inputs.height, layout.inputs.width, layout.inputs.height], [size.width, size.height, size.width, size.height]);
+        if (engine === 'moss') assert.equal(size.width % 16 + size.height % 16, 0);
+        assert(size.width < size.height);
+        assert.equal(create.inputs.editor_state.__value__.length, boxes.length);
+        assert.equal(layout.inputs.character_boxes, boxes.length > 1 ? '2' : '');
+        assert.equal(built.graph[built.outputNode].class_type, 'PreviewImage');
+        jobs.push({ engine, op: 'bbox', count: 0, ...built });
+    }
+}
+const mossCfg = inheritModels({ ...initialSettings('moss'), aspect_ratio: '1000:1500', megapixels: 1, boxes: layoutBoxes }, settings.models.moss, 'moss');
+const mossGraph = Object.values(buildPrompt(defs, 'bbox', 'moss', mossCfg, [], 'bbox').graph);
+const [sky, character, text] = mossGraph.find(n => n.class_type === 'CreateBoundingBoxes').inputs.editor_state.__value__;
+assert.deepEqual([sky.x, sky.y, sky.width], [0, 0, mossGraph.find(n => n.class_type === 'EmptyFlux2LatentImage').inputs.width]);
+assert.deepEqual(text.metadata, { type: 'text', text: 'MANGA', desc: 'Bold title', palette: [] });
+assert.equal(character.metadata.type, 'obj'); assert.equal(character.metadata.text, '');
+assert.throws(() => buildPrompt(defs, 'bbox', 'krea_edit', { ...mossCfg, engine: 'krea_edit' }, [], 'bbox'), /requires at least one reference image/);
 fs.writeFileSync('/tmp/manga-generation-engines-graphs.json', JSON.stringify(jobs));
-console.log(`${jobs.length} Moss/Anima graphs passed: workflow sampling, conditioning, latent types, LoRA order, overrides and model errors.`);
+console.log(`${jobs.length} Moss/Anima graphs passed: workflow sampling, conditioning, latent types, LoRA order, overrides, bbox layout prompts for every text-to-image engine and model errors.`);

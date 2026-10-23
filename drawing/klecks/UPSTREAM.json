@@ -12,9 +12,14 @@
   "local_api": [
     "applyLayer",
     "getRevision",
+    "onBoxDrawn",
+    "onBoxToolEnd",
     "onReady",
-    "onStrokeStart",
     "onStrokeEnd",
-    "setGuideRegion"
+    "onStrokeStart",
+    "setBoxTool",
+    "setGuideBoxes",
+    "setGuideRegion",
+    "setPreviewImage"
   ]
 }

@@ -5,6 +5,7 @@ import { inheritModels } from './models.js';
 import { mangaControls } from './manga-panel.js';
 import { segmented, slider, toggle, seed } from './controls.js';
 import { buildMangaPrompt } from './manga-prompt.js';
+import { bboxControls } from './bbox-panel.js';
 
 export function sketchControls(studio, kind, project, send, busyChanged) {
     const scope = `sketch_${kind}`; const existing = studio.project.config[`${scope}:krea_edit`];
@@ -27,18 +28,22 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     let wakePoll, completionNotified = false;
     const abort = new AbortController();
     for (const name of ['execution_success', 'execution_error', 'execution_interrupted']) api.addEventListener(name, event => {
+        if (liveWait && event.detail.prompt_id === liveWait.id) { liveWait.resolve({ type: name, detail: event.detail }); liveWait = null; return; }
         if (event.detail.prompt_id !== job?.id) return;
         completionNotified = true; wakePoll?.();
     }, { signal: abort.signal });
     let dimensions, previewImage, drag; const layerId = uuid().slice(0, 8);
     let mode = 'sketch';
-    const title = () => mode === 'manga' ? 'Art to Manga Panel' : 'Sketch to Art';
+    const titles = { sketch: 'Sketch to Art', manga: 'Art to Manga Panel', bbox: 'BBox to Image' };
+    const title = () => titles[mode];
+    const hints = { sketch: 'Generate the canvas or a selected region as a new AI layer.', manga: 'Convert the canvas or selected region into an editable manga layer.',
+        bbox: 'Draw boxes on the canvas, describe them, then generate the whole canvas as a new AI layer.' };
     const status = el('small', { role: 'status', text: 'Generate the canvas or a selected region as a new AI layer.' });
     const canvas = el('canvas', { class: 'mm-sketch-preview', width: 320, height: 200, 'aria-label': 'Sketch region preview', 'aria-describedby': 'mm-sketch-region-help', tabIndex: 0 });
     const realtime = el('input', { type: 'checkbox', 'aria-label': 'Realtime on stroke release', onchange: () => {
         pending = false; status.textContent = realtime.checked ? 'Realtime enabled · Generate after releasing a stroke.' : 'Realtime paused.';
     } });
-    const changed = () => { revision++; studio.presetChanged(scope, element); };
+    const changed = () => { revision++; studio.presetChanged(scope, element); scheduleLive(); };
     const generate = button('Generate Sketch to Art', () => start(), { class: 'mm-primary', disabled: true });
     const cancel = button('Cancel generation', () => stop(), { disabled: true });
     const preview = button('Update region preview', () => { if (!active) send('manga-drawing-snapshot', { token: 'preview' }); }, { disabled: true });
@@ -79,24 +84,35 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
         sampling.append(seed('Seed', cfg, changed));
         renderModels();
     }
-    const manga = mangaControls(studio, kind, () => { revision++; studio.saveSoon(); });
+    // Manga-Lite uses only fast image nodes, so it can preview every change over the canvas without adding a layer or a project job.
+    let liveTimer, liveBusy = false, liveAgain = false, liveSource = '', liveKey = '', liveRegion = null, liveWait = null, liveSnapshot = null, drawn = 0;
+    const live = el('input', { type: 'checkbox', 'aria-label': 'Live preview on canvas', onchange: () => scheduleLive() });
+    const liveStatus = el('small', { role: 'status' });
+    const livePanel = el('div', {}, toggle('Live preview on canvas', live), liveStatus);
+    const manga = mangaControls(studio, kind, () => { revision++; studio.saveSoon(); livePanel.hidden = manga.cfg.mode !== 'lite'; scheduleLive(); });
+    livePanel.hidden = manga.cfg.mode !== 'lite';
+    const mangaSettings = el('div', {}, livePanel, manga.element);
+    const bbox = bboxControls(studio, kind, send, () => dimensions, () => { revision++; studio.saveSoon(); });
     const heading = el('h3', { text: title() });
-    const tool = segmented('Drawing workflow', [['sketch', 'Sketch to Art'], ['manga', 'Art to Manga Panel']], 'sketch', () => {
+    const tool = segmented('Drawing workflow', Object.entries(titles), 'sketch', () => {
+        if (mode === 'bbox') bbox.hide();
         mode = tool.value; revision++; realtime.checked = false; pending = false;
         heading.textContent = title(); generate.textContent = `Generate ${title()}`;
         element.setAttribute('aria-label', `${title()} controls`);
-        workflowSettings.replaceChildren(mode === 'manga' ? manga.element : sketchSettings);
-        status.textContent = mode === 'manga' ? 'Convert the canvas or selected region into an editable manga layer.' : 'Generate the canvas or a selected region as a new AI layer.';
+        workflowSettings.replaceChildren({ sketch: sketchSettings, manga: mangaSettings, bbox: bbox.element }[mode]); scheduleLive();
+        regionControls.hidden = mode === 'bbox'; paintPreview(); if (mode === 'bbox') bbox.sync();
+        status.textContent = hints[mode];
     });
     const sketchSettings = el('div', {}, presets, blend, prompt, sampling, models, toggle('Realtime on stroke release', realtime));
     const workflowSettings = el('div', {}, sketchSettings);
+    const regionControls = el('div', {}, regionMode, el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls);
     const element = el('aside', { class: 'mm-sketch-controls', 'aria-label': 'Sketch to Art controls' }, tool, heading,
-        regionMode, el('small', { id: 'mm-sketch-region-help', text: 'Drag with the left mouse button on the preview to select the generation region. Choose Whole canvas to reset.' }), canvas, coordinates, preview, maskControls, workflowSettings, el('div', { class: 'mm-run-bar' }, el('div', { class: 'mm-row' }, generate, cancel), status));
+        regionControls, workflowSettings, el('div', { class: 'mm-run-bar' }, el('div', { class: 'mm-row' }, generate, cancel), status));
     renderSettings();
     function update() { generate.disabled = !ready || !!active; preview.disabled = !ready || !!active; cancel.disabled = !active || stopping; tool.disabled = !!active; busyChanged(); }
     function region() {
         if (!dimensions) throw new Error('Update the canvas preview before selecting a region.');
-        if (cfg.region_mode !== 'region') return { x: 0, y: 0, ...dimensions };
+        if (mode === 'bbox' || cfg.region_mode !== 'region') return { x: 0, y: 0, ...dimensions };
         const value = cfg.region || {};
         const x = Math.max(0, Math.min(dimensions.width - 1, Math.round(Number(value.x) || 0)));
         const y = Math.max(0, Math.min(dimensions.height - 1, Math.round(Number(value.y) || 0)));
@@ -106,7 +122,7 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     function paintPreview() {
         coordinates.hidden = cfg.region_mode !== 'region';
         if (!previewImage) return;
-        send('manga-drawing-guide-region', { region: cfg.region_mode === 'region' ? region() : null });
+        send('manga-drawing-guide-region', { region: mode !== 'bbox' && cfg.region_mode === 'region' ? region() : null });
         const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(previewImage, 0, 0, canvas.width, canvas.height);
         if (maskEnabled.checked) {
             ctx.save(); ctx.globalAlpha = 0.35; ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height); ctx.restore();
@@ -170,9 +186,48 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     function start() {
         if (disposed || !ready) return;
         if (active) { pending = true; return; }
-        stopping = false; pending = false; active = { token: uuid(), revision, mode, name: title(), operation: mode === 'manga' ? 'manga' : 'sketch', engine: mode === 'manga' ? (manga.cfg.mode === 'qwen' ? 'qwen' : 'manga_lite') : 'krea_edit',
-            settings: structuredClone(mode === 'manga' ? { ...manga.cfg, feather: 0, blend_opacity: 100 } : cfg) };
+        stopping = false; pending = false; active = { token: uuid(), revision, mode, name: title(), operation: mode,
+            engine: { sketch: 'krea_edit', manga: manga.cfg.mode === 'qwen' ? 'qwen' : 'manga_lite', bbox: bbox.cfg.engine }[mode],
+            settings: structuredClone({ sketch: cfg, manga: { ...manga.cfg, feather: 0, blend_opacity: 100 }, bbox: { ...bbox.cfg, boxes: bbox.boxes, feather: 0, blend_opacity: 100 } }[mode]) };
         status.textContent = 'Capturing drawing…'; update(); send('manga-drawing-snapshot', { token: active.token });
+    }
+    function liveEnabled() { return live.checked && mode === 'manga' && manga.cfg.mode === 'lite' && ready && !disposed; }
+    function scheduleLive() {
+        clearTimeout(liveTimer);
+        if (liveEnabled()) liveTimer = setTimeout(runLive, 150);
+        else { send('manga-drawing-live-preview', {}); liveStatus.textContent = ''; }
+    }
+    async function stageLive() {
+        const drawnAt = drawn;
+        await new Promise((resolve, reject) => { liveSnapshot = { resolve, reject }; send('manga-drawing-snapshot', { token: 'live' }); });
+        const r = region(), crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
+        crop.getContext('2d').drawImage(previewImage, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+        const form = new FormData(); form.append('image', await new Promise(resolve => crop.toBlob(resolve, 'image/png')), `live-${layerId}.png`);
+        form.append('type', 'temp'); form.append('subfolder', `manga-maker-drawing/${project}`); form.append('overwrite', 'true');
+        const response = await api.fetchApi('/upload/image', { method: 'POST', body: form }); const uploaded = await response.json();
+        if (!response.ok) throw new Error(uploaded.error || 'Could not stage the drawing region.');
+        liveSource = `${uploaded.subfolder ? uploaded.subfolder + '/' : ''}${uploaded.name} [${uploaded.type}]`; liveKey = `${drawnAt}:${JSON.stringify(r)}`; liveRegion = r;
+    }
+    async function runLive() {
+        if (!liveEnabled()) return;
+        if (liveBusy) { liveAgain = true; return; }
+        liveBusy = true; liveAgain = false; liveStatus.textContent = 'Updating preview…';
+        try {
+            if (!dimensions || liveKey !== `${drawn}:${JSON.stringify(region())}`) await stageLive();
+            const built = buildMangaPrompt(studio.defs, manga.cfg, liveSource);
+            // Cached graphs can finish before the queue response arrives, so listen before queueing.
+            const id = uuid(), finished = new Promise(resolve => { liveWait = { id, resolve }; });
+            const queued = await api.fetchApi('/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt_id: id, client_id: api.clientId, prompt: built.graph }) });
+            const result = await queued.json();
+            if (!queued.ok) { liveWait = null; throw new Error(result.error?.message || JSON.stringify(result.node_errors || result.error || result)); }
+            const event = await finished;
+            if (event.type !== 'execution_success') throw new Error(event.detail.exception_message || 'Preview interrupted.');
+            const history = (await (await api.fetchApi(`/history/${id}`)).json())[id];
+            if (liveEnabled()) send('manga-drawing-live-preview', { imageUrl: api.apiURL('/view?' + new URLSearchParams(history.outputs[built.outputNode].images[0])), region: liveRegion });
+            liveStatus.textContent = '';
+        } catch (error) { liveStatus.textContent = `Live preview failed: ${error.message}`; }
+        liveBusy = false;
+        if (liveAgain) runLive();
     }
     async function stop() {
         pending = false; stopping = true; update();
@@ -186,28 +241,33 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
             if (!ticket || data.token !== ticket.token) return;
             if (stopping || disposed) { finish('Generation cancelled.'); return; }
             if (ticket.revision !== revision) { finish('Drawing changed · Waiting for the latest stroke.'); return; }
-            fitMaskRegion();
+            if (ticket.mode !== 'bbox') fitMaskRegion();
             ticket.frameRevision = data.revision; ticket.region = region(); const r = ticket.region;
-            let blob = data.png;
-            if (r.x || r.y || r.width !== dimensions.width || r.height !== dimensions.height) {
-                const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
-                crop.getContext('2d').drawImage(previewImage, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
-                blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
-            }
-            if (maskEnabled.checked) {
-                const mask = document.createElement('canvas'); mask.width = r.width; mask.height = r.height;
-                mask.getContext('2d').drawImage(maskCanvas, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
-                ticket.mask = await new Promise(resolve => mask.toBlob(resolve, 'image/png'));
-            }
-            const form = new FormData(); form.append('image', blob, `${ticket.token}.png`); form.append('type', 'temp'); form.append('subfolder', `manga-maker-drawing/${project}`);
-            status.textContent = 'Uploading the drawing region…';
-            const response = await api.fetchApi('/upload/image', { method: 'POST', body: form }); const uploaded = await response.json();
-            if (!response.ok) throw new Error(uploaded.error || 'Could not stage the drawing region.');
-            if (stopping || disposed || ticket.revision !== revision) { finish('Drawing changed · Waiting for the latest stroke.'); return; }
             const settings = ticket.settings;
             if (settings.random_seed) settings.seed = Math.floor(Math.random() * 2 ** 48);
-            const imagePath = `${uploaded.subfolder ? uploaded.subfolder + '/' : ''}${uploaded.name} [${uploaded.type}]`;
-            const built = ticket.mode === 'manga' ? buildMangaPrompt(studio.defs, settings, imagePath) : buildPrompt(studio.defs, 'sketch', 'krea_edit', settings, [imagePath], ticket.token);
+            let built;
+            // BBox to Image is text-to-image: the layout comes from the boxes, so the drawing is not uploaded.
+            if (ticket.mode === 'bbox') built = buildPrompt(studio.defs, 'bbox', ticket.engine, { ...settings, aspect_ratio: `${r.width}:${r.height}` }, [], ticket.token);
+            else {
+                let blob = data.png;
+                if (r.x || r.y || r.width !== dimensions.width || r.height !== dimensions.height) {
+                    const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
+                    crop.getContext('2d').drawImage(previewImage, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+                    blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
+                }
+                if (maskEnabled.checked) {
+                    const mask = document.createElement('canvas'); mask.width = r.width; mask.height = r.height;
+                    mask.getContext('2d').drawImage(maskCanvas, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+                    ticket.mask = await new Promise(resolve => mask.toBlob(resolve, 'image/png'));
+                }
+                const form = new FormData(); form.append('image', blob, `${ticket.token}.png`); form.append('type', 'temp'); form.append('subfolder', `manga-maker-drawing/${project}`);
+                status.textContent = 'Uploading the drawing region…';
+                const response = await api.fetchApi('/upload/image', { method: 'POST', body: form }); const uploaded = await response.json();
+                if (!response.ok) throw new Error(uploaded.error || 'Could not stage the drawing region.');
+                if (stopping || disposed || ticket.revision !== revision) { finish('Drawing changed · Waiting for the latest stroke.'); return; }
+                const imagePath = `${uploaded.subfolder ? uploaded.subfolder + '/' : ''}${uploaded.name} [${uploaded.type}]`;
+                built = ticket.mode === 'manga' ? buildMangaPrompt(studio.defs, settings, imagePath) : buildPrompt(studio.defs, 'sketch', 'krea_edit', settings, [imagePath], ticket.token);
+            }
             job = await request(`/projects/${project}/jobs`, { id: ticket.token, operation: ticket.operation, engine: ticket.engine, kind, space: kind,
                 name: ticket.name, settings: { ...settings, region: r }, prompt: built.graph, output_node: built.outputNode, sources: [] }, 'POST');
             if (studio.project?.id === project) { studio.project.jobs.push(job); studio.jobs(); }
@@ -255,26 +315,32 @@ export function sketchControls(studio, kind, project, send, busyChanged) {
     }
     async function handle(data) {
         if (data.type === 'manga-drawing-opened') { ready = true; update(); send('manga-drawing-snapshot', { token: 'preview' }); }
-        else if (data.type === 'manga-drawing-changed' && data.source !== 'ai') revision++;
-        else if (data.type === 'manga-drawing-stroke-end' && realtime.checked) start();
+        else if (data.type === 'manga-drawing-changed') { drawn++; if (data.source !== 'ai') revision++; }
+        else if (data.type === 'manga-drawing-stroke-end') { if (realtime.checked) start(); scheduleLive(); }
         else if (data.type === 'manga-drawing-snapshot-result') {
             if (!(data.png instanceof Blob)) return;
             const image = await createImageBitmap(data.png); if (disposed) { image.close(); return; } dimensions = { width: image.width, height: image.height };
             if (maskCanvas.width !== image.width || maskCanvas.height !== image.height) { maskCanvas.width = image.width; maskCanvas.height = image.height; maskEnabled.checked = false; }
             previewImage?.close(); previewImage = image; canvas.width = Math.max(1, Math.min(320, Math.round(220 * dimensions.width / dimensions.height))); canvas.height = Math.max(1, Math.round(canvas.width * dimensions.height / dimensions.width));
             if (!cfg.region) cfg.region = { x: 0, y: 0, ...dimensions };
-            for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key]; paintPreview();
-            if (data.token !== 'preview') submit(data);
+            for (const key of Object.keys(inputs)) inputs[key].value = cfg.region[key]; paintPreview(); if (mode === 'bbox') bbox.sync();
+            if (data.token === 'live') liveSnapshot?.resolve();
+            else if (data.token !== 'preview') submit(data);
         } else if (data.type === 'manga-drawing-art-applied' && data.token === active?.token) {
             const refresh = !pending; finish('AI layer added · Save to project to preserve it.');
             if (refresh) send('manga-drawing-snapshot', { token: 'preview' });
-        } else if (data.type === 'manga-drawing-art-stale' && data.token === active?.token) finish('Skipped an older result · Latest drawing preserved.');
+        } else if (data.type === 'manga-drawing-box-drawn' && mode === 'bbox' && dimensions) bbox.place(data.box, data.index);
+        else if (data.type === 'manga-drawing-box-undo' && mode === 'bbox') bbox.undo();
+        else if (data.type === 'manga-drawing-box-redo' && mode === 'bbox') bbox.redo();
+        else if (data.type === 'manga-drawing-box-tool-end') bbox.stopDrawing();
+        else if (data.type === 'manga-drawing-art-stale' && data.token === active?.token) finish('Skipped an older result · Latest drawing preserved.');
         else if (data.type === 'manga-drawing-ai-error') {
             if (data.token === 'preview') status.textContent = data.error;
+            else if (data.token === 'live') { liveSnapshot?.reject(new Error(data.error)); liveStatus.textContent = `Live preview failed: ${data.error}`; }
             else if (data.token === active?.token) finish(`${title()} failed: ${data.error}`);
         }
     }
     return { element, handle, get busy() { return !!active; }, dispose() {
-        disposed = true; pending = false; abort.abort(); wakePoll?.(); previewImage?.close(); stop();
+        disposed = true; pending = false; abort.abort(); wakePoll?.(); clearTimeout(liveTimer); previewImage?.close(); stop();
     } };
 }

@@ -34,6 +34,8 @@ Choose a rectangle to limit inference, then use a stitch mask when only part of 
 
 Choose **Manga-Lite** for Manga Levels → Manga Finish → Manga Panel without an edit model, or **QWEN-Manga** for Qwen Image 2.1 Turbo editing followed by Manga Finish and Manga Panel. Both use the [ComfyUI-MangaScreen workflows](https://github.com/ashukae/ComfyUI-MangaScreen), with their 2 MP working resolution, 250 screen lines and panel defaults. QWEN-Manga uses the upstream eight-step sigma schedule and editable instruction; select a compatible Turbo model, encoder and VAE under Models and advanced settings. Manga settings and presets are saved separately for references and panels. Screentones, levels, crop, frame, paper and ink are editable. **Extract pen lines** is optional and disabled initially; enable it to reproduce the workflow's Manga Lineart pass.
 
+In Manga-Lite, **Live preview on canvas** reruns the workflow after each parameter change, slider drag or stroke and draws the result over the drawing area in Klecks, at the canvas zoom, without adding a layer or an undo step. It hides while you draw a stroke. The drawing is uploaded only when it changes. Lower **Working resolution · MP** for faster updates; use **Generate Art to Manga Panel** to add the layer.
+
 | Control | Effect on the result |
 | --- | --- |
 | **Input black / Input white / Gamma** in Manga-Lite | Adjust which source values become black, midtone or paper before finishing |
@@ -48,6 +50,14 @@ Choose **Manga-Lite** for Manga Levels → Manga Finish → Manga Panel without 
 Manga-Lite is useful for clean line art and simple backgrounds. QWEN-Manga can redraw painted backgrounds and reinterpret values before the tone pass, but it needs compatible Turbo weights. Manga output is fitted inside the chosen drawing region, so a changed panel aspect ratio keeps its proportions rather than stretching to fill the region. Layer opacity can be changed in Klecks.
 
 Install **ComfyUI-MangaScreen** (`opencv-python`, `numpy`), restart ComfyUI when no jobs are active and refresh lists. Pen extraction additionally needs **comfyui_controlnet_aux** and its Manga Lineart weights. Models and lineart weights must be installed separately. The editor does not automatically download manga models. When pen extraction is explicitly enabled and run, `comfyui_controlnet_aux` may download its missing annotator weights on first use; install them in advance for offline use. Manga generation runs on demand.
+
+## BBox to Image
+
+**BBox to Image** in **Drawing workflow** generates the whole canvas from a scene prompt and boxes drawn on the canvas. The boxes are written in the MOSS-Image layout format, following ComfyUI's official MOSS-Image bbox template: `Create Bounding Boxes` → `MOSS-Image Layout Prompt` → text encoding. Choose **Engine**: MOSS-Image (default) is trained on this layout; Krea2, Qwen Image 2.1 and Anima receive the same layout JSON as prompt text, so how well they follow the boxes depends on their text encoder. Krea2 Edit is not offered because it needs reference images.
+
+Enable **Draw boxes on canvas** and drag on the drawing. Each box gets a number and a type: **Object**, **Character** or **Text** (with the text to render), plus a description. Each new box gets the next unused color so boxes are easy to tell apart; change it with **Color**. Colors only mark boxes on the canvas and are not sent to the model. List background boxes first and foreground boxes last; use the arrows to reorder. Boxes follow zoom, panning and rotation, but they are guides only: they are not part of undo history, the PNG or the PSD. They are stored with the project and shared by every engine; the prompt, presets, sampling and models are kept per engine. While **Draw boxes on canvas** is on, drag a corner to resize a box, drag its edge or label to move it, and drag anywhere else to draw a new one, also inside a larger box. Ctrl+Z and Ctrl+Y then undo and redo box changes instead of the drawing; the panel's undo and redo buttons do the same. Choosing a Klecks tool ends box drawing.
+
+The drawing is not sent to the model; the result is added as an editable **BBox to Image** layer over the whole canvas. **Working resolution · MP** sets the generation size at the canvas aspect ratio, rounded to multiples of 16 for MOSS-Image and 8 for the other engines. Models, sampling and LoRAs inherit the selected engine's global configuration. Boxes are layout guidance, not masks; the model decides the final placement.
 
 ## Saving and undo
 

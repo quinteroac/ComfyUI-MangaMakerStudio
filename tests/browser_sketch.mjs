@@ -30,7 +30,9 @@ try {
     });
     await page.route(/\/(?:api\/)?manga-maker\//, async route => {
         const url = new URL(route.request().url()), pathname = url.pathname.replace(/^\/api\//, '/');
-        await route.fulfill({ response: await route.fetch({ url: backend.url + pathname + url.search }) });
+        // ComfyUI serves every response with COEP; the Klecks iframe is blocked inside the Studio page without it.
+        const response = await route.fetch({ url: backend.url + pathname + url.search });
+        await route.fulfill({ response, headers: { ...response.headers(), 'cross-origin-embedder-policy': 'credentialless' } });
     });
     await page.route(/\/(?:api\/)?upload\/image$/, async route => {
         const response = await route.fetch({ url: `${backend.url}/test/upload` }); const uploaded = await response.json(); uploads.push(uploaded);
@@ -49,6 +51,11 @@ try {
         const body = route.request().postDataJSON(); queued.push(body);
         const response = await fetch(`${backend.url}/test/${hold ? 'enqueue' : 'complete'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         await route.fulfill({ json: await response.json() });
+        // Studio jobs are polled; the Manga-Lite live preview waits for ComfyUI's completion event instead.
+        if (!body.extra_data && !hold) await page.evaluate(id => window.comfyAPI.api.api.dispatchCustomEvent('execution_success', { prompt_id: id }), body.prompt_id);
+    });
+    await page.route(/\/(?:api\/)?history\/[\w-]+$/, async route => {
+        await route.fulfill({ response: await route.fetch({ url: `${backend.url}/test/history/${new URL(route.request().url()).pathname.split('/').at(-1)}` }) });
     });
     await page.goto(process.env.COMFY_URL || 'http://127.0.0.1:8188', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.comfyAPI?.app?.app?.graph && window.comfyAPI.app.app.extensions.some(e => e.name === 'MangaMaker.Studio'));
@@ -307,6 +314,21 @@ try {
         await dialog.locator('iframe').focus(); await page.keyboard.press('Control+z');
         assert.deepEqual(await drawingPixels(), wholeAfterMask);
         await page.keyboard.press('Control+y'); assert.deepEqual(await drawingPixels(), mangaPixels);
+        const queuedBefore = queued.length, uploadsBefore = uploads.length;
+        await frame.evaluate(() => { const set = editor.setPreviewImage.bind(editor); window.previews = []; editor.setPreviewImage = preview => { window.previews.push(preview && preview.region); set(preview); }; });
+        await manga.getByLabel('Live preview on canvas', { exact: true }).check();
+        await frame.waitForFunction(() => window.previews.some(Boolean));
+        assert.deepEqual((await frame.evaluate(() => window.previews.filter(Boolean).at(-1))), { x: 0, y: 0, width: 256, height: 256 });
+        assert.equal(queued.length, queuedBefore + 1); assert.equal(uploads.length, uploadsBefore + 1);
+        assert(!queued.at(-1).extra_data && Object.values(queued.at(-1).prompt).some(n => n.class_type === 'MangaLevels'));
+        await manga.getByLabel('Gamma', { exact: true }).fill('2'); await manga.getByLabel('Gamma', { exact: true }).press('Tab');
+        for (let i = 0; i < 100 && queued.length < queuedBefore + 2; i++) await page.waitForTimeout(50);
+        assert.equal(Object.values(queued.at(-1).prompt).find(n => n.class_type === 'MangaLevels').inputs.gamma, 2);
+        assert.equal(uploads.length, uploadsBefore + 1, 'An unchanged drawing is not uploaded again');
+        assert.equal((await layers()).length, 4, 'Live preview does not add layers');
+        await manga.getByLabel('Live preview on canvas', { exact: true }).uncheck();
+        // The bridge receives postMessage asynchronously, so wait for the overlay to clear instead of reading it once.
+        await frame.waitForFunction(() => window.previews.at(-1) === null, null, { timeout: 5000 }).catch(() => assert.fail('Turning the preview off clears the canvas overlay'));
         await manga.getByLabel('Manga workflow', { exact: true }).selectOption('qwen');
         await manga.locator('summary').filter({ hasText: 'Models and advanced settings' }).click();
         for (const [label, node, key] of [['Diffusion model', 'UNETLoader', 'unet_name'], ['Text encoder', 'CLIPLoader', 'clip_name'], ['VAE', 'VAELoader', 'vae_name']]) {
@@ -320,6 +342,85 @@ try {
         assert.equal((await layers()).length, 4, 'Manga updates its own layer');
         await choose(manga, 'Drawing workflow', 'sketch');
         assert.equal(await controls.getByLabel('Denoise', { exact: true }).inputValue(), '0.45');
+        await choose(controls, 'Drawing workflow', 'bbox');
+        const bbox = dialog.getByRole('complementary', { name: 'BBox to Image controls', exact: true });
+        assert.equal(await bbox.getByLabel('Sketch region preview', { exact: true }).isVisible(), false);
+        await page.waitForTimeout(100);
+        assert.equal(await viewPixels(), 0, 'BBox to Image hides the sketch region guide');
+        await bbox.locator('summary').filter({ hasText: 'Models and advanced settings' }).click();
+        for (const [label, node, key] of [['Diffusion model', 'UNETLoader', 'unet_name'], ['Text encoder', 'CLIPLoader', 'clip_name'], ['VAE', 'VAELoader', 'vae_name'], ['Eight-step LoRA', 'LoraLoaderModelOnly', 'lora_name']]) {
+            await bbox.getByLabel(label, { exact: true }).fill(options(defs, node, key)[0]);
+            await bbox.getByLabel(label, { exact: true }).press('Tab');
+        }
+        const pngBeforeBoxes = await frame.evaluate(async () => [...new Uint8Array(await (await editor.getPNG()).arrayBuffer())]);
+        const revisionBeforeBoxes = await frame.evaluate(() => editor.getRevision()), uploadsBeforeBoxes = uploads.length;
+        await bbox.getByLabel('Draw boxes on canvas', { exact: true }).check();
+        await frame.waitForFunction(() => boxTool);
+        const index = await frame.locator('canvas').evaluateAll(canvases => canvases.map((c, i) => ({ i, area: c.getBoundingClientRect().width * c.getBoundingClientRect().height })).sort((a, b) => b.area - a.area)[0].i);
+        const view = await frame.locator('canvas').nth(index).boundingBox();
+        await page.mouse.move(view.x + view.width / 2 - 40, view.y + view.height / 2 - 40); await page.mouse.down();
+        await page.mouse.move(view.x + view.width / 2 + 40, view.y + view.height / 2 + 40, { steps: 5 }); await page.mouse.up();
+        await bbox.getByLabel('Box 1 description', { exact: true }).waitFor();
+        await page.waitForTimeout(100);
+        assert(await viewPixels() > 0, 'Drawn boxes are visible on the drawing canvas');
+        assert.equal(await frame.evaluate(() => editor.getRevision()), revisionBeforeBoxes, 'Boxes do not change undo history');
+        assert.deepEqual(await frame.evaluate(async () => [...new Uint8Array(await (await editor.getPNG()).arrayBuffer())]), pngBeforeBoxes, 'Boxes are excluded from exports');
+        await frame.evaluate(() => { const set = editor.setGuideBoxes.bind(editor); editor.setGuideBoxes = boxes => { window.guides = boxes; set(boxes); }; });
+        const guides = (condition, arg) => frame.waitForFunction(condition, arg).then(() => frame.evaluate(() => window.guides));
+        await page.keyboard.press('Control+z');
+        await bbox.getByText('No boxes yet. Enable Draw boxes on canvas and drag on the drawing.', { exact: true }).waitFor();
+        await page.keyboard.press('Control+y');
+        const [first] = await guides(() => window.guides?.length === 1);
+        const drag = async (from, to) => {
+            await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 5 }); await page.mouse.up();
+        };
+        const centerX = view.x + view.width / 2, centerY = view.y + view.height / 2;
+        await drag({ x: centerX, y: centerY - 40 }, { x: centerX + 20, y: centerY - 40 });
+        const [moved] = await guides(x => window.guides[0].x !== x, first.x);
+        assert(moved.x > first.x); assert.equal(moved.y, first.y); assert.equal(moved.width, first.width, 'Dragging an edge moves the box');
+        await drag({ x: centerX + 60, y: centerY + 40 }, { x: centerX + 80, y: centerY + 60 });
+        const [resized] = await guides(width => window.guides[0].width !== width, moved.width);
+        assert.equal(resized.x, moved.x); assert(resized.width > moved.width && resized.height > moved.height, 'Dragging a corner resizes the box');
+        await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+        assert.deepEqual((await guides(x => window.guides[0].x === x, first.x))[0], first, 'Undo restores moved and resized boxes');
+        assert.equal(await frame.evaluate(() => editor.getRevision()), revisionBeforeBoxes, 'Box undo does not touch the drawing history');
+        await drag({ x: centerX + 60, y: centerY + 60 }, { x: centerX + 100, y: centerY + 100 });
+        const [, second] = await guides(() => window.guides.length === 2);
+        assert.equal(first.color, '#3584ff'); assert.equal(second.color, '#e01b9b', 'New boxes get the next unused color');
+        await page.keyboard.press('Control+z'); await guides(() => window.guides.length === 1);
+        await bbox.getByLabel('Box 1 color', { exact: true }).fill('#2ec27e');
+        assert.equal((await guides(() => window.guides[0].color === '#2ec27e'))[0].label, '1 · Object');
+        await bbox.getByLabel('Box 1 type', { exact: true }).selectOption('character');
+        await bbox.getByLabel('Box 1 description', { exact: true }).fill('A girl with fennec ears');
+        await bbox.getByLabel('Draw boxes on canvas', { exact: true }).uncheck();
+        await bbox.getByRole('button', { name: 'Generate BBox to Image', exact: true }).click();
+        await bbox.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+        const graph = Object.values(queued.at(-1).prompt);
+        const layout = graph.find(n => n.class_type === 'MOSSImageLayoutPrompt'), [drawn] = graph.find(n => n.class_type === 'CreateBoundingBoxes').inputs.editor_state.__value__;
+        assert.equal(layout.inputs.character_boxes, '1'); assert.equal(drawn.metadata.desc, 'A girl with fennec ears');
+        assert.deepEqual(drawn.metadata.palette, [], 'Box colors are not sent to the model');
+        assert(Math.abs(drawn.x + drawn.width / 2 - layout.inputs.width / 2) < layout.inputs.width * .05 && drawn.width > 0, 'Canvas drag maps to drawing coordinates');
+        assert.equal(uploads.length, uploadsBeforeBoxes, 'BBox to Image does not upload the drawing');
+        const layerNames = await frame.evaluate(async () => (await editor.readPSD(await (await editor.getPSD()).arrayBuffer())).layers.map(l => l.name));
+        assert.equal(layerNames.length, 5); assert(layerNames.at(-1).startsWith('BBox to Image'));
+        await page.waitForTimeout(700);
+        assert.equal((await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json()).workspace.bbox_panels.boxes.length, 1);
+        assert.equal(await bbox.getByLabel('BBox engine', { exact: true }).inputValue(), 'moss');
+        await bbox.getByLabel('BBox engine', { exact: true }).selectOption('qwen');
+        assert.equal(await bbox.getByLabel('Box 1 description', { exact: true }).inputValue(), 'A girl with fennec ears', 'Boxes are shared by every engine');
+        await bbox.locator('summary').filter({ hasText: 'Models and advanced settings' }).click();
+        for (const [label, node, key] of [['Diffusion model', 'UNETLoader', 'unet_name'], ['Text encoder', 'CLIPLoader', 'clip_name'], ['VAE', 'VAELoader', 'vae_name']]) {
+            await bbox.getByLabel(label, { exact: true }).fill(options(defs, node, key)[0]);
+            await bbox.getByLabel(label, { exact: true }).press('Tab');
+        }
+        await bbox.getByRole('button', { name: 'Generate BBox to Image', exact: true }).click();
+        await bbox.getByText('AI layer added · Save to project to preserve it.', { exact: true }).waitFor();
+        const qwen = queued.at(-1).prompt, layoutId = Object.keys(qwen).find(id => qwen[id].class_type === 'MOSSImageLayoutPrompt');
+        assert.deepEqual(Object.values(qwen).find(n => n.class_type === 'TextEncodeQwenImage21').inputs.prompt, [layoutId, 0], 'Qwen receives the MOSS layout prompt');
+        assert.equal(Object.values(qwen).find(n => n.class_type === 'CreateBoundingBoxes').inputs.editor_state.__value__[0].metadata.desc, 'A girl with fennec ears');
+        assert.equal((await frame.evaluate(async () => (await editor.readPSD(await (await editor.getPSD()).arrayBuffer())).layers.length)), 5, 'Each engine updates the same BBox layer');
+        await bbox.getByLabel('BBox engine', { exact: true }).selectOption('moss');
+        await choose(bbox, 'Drawing workflow', 'sketch');
     }
     await dialog.getByRole('button', { name: 'Save to project', exact: true }).click();
     await dialog.getByText('Saved to project · Layers preserved', { exact: true }).waitFor();
@@ -331,6 +432,7 @@ try {
     delete graphBefore.extra.k2cf_state_id; delete graphAfter.extra.k2cf_state_id; assert.deepEqual(graphAfter, graphBefore);
     assert.deepEqual(errors, []);
     if (process.argv[4]) console.log('Art to Manga Panel passed: Lite/Qwen graphs, editable layer reuse, preserved aspect ratio, undo/redo and independent Sketch settings.');
+    if (process.argv[4]) console.log('BBox to Image passed: boxes drawn, moved, resized, colored and undone on the Klecks canvas, excluded from drawing history and exports, MOSS layout prompt for MOSS and Qwen without uploads, shared boxes, editable layer and saved boxes.');
     console.log('Sketch to Art passed: mask crop/stitch, protected holes, repeated masked layer updates and native undo,  whole-canvas/region pixels, feather and 50% opacity, editable reused layer with native undo/redo, sampler settings, release-only pen realtime, one job at a time, stale result skipped, targeted cancel, layered save and unchanged Comfy graph.');
 } catch (error) {
     await page.screenshot({ path: '/tmp/manga-sketch-error.png' }); console.error((await page.locator('.mm-studio').innerText().catch(() => 'Studio closed')).slice(-9000), errors); throw error;

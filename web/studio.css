@@ -327,6 +327,9 @@
 .mm-sketch-preview{display:block;max-width:100%;margin:8px auto;touch-action:none;border:1px solid var(--mm-line);border-radius:var(--mm-radius-sm);cursor:crosshair}
 .mm-sketch-coordinates{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
 .mm-sketch-coordinates>.mm-field{margin:6px 0}
+.mm-bbox-item{margin:8px 0;padding:4px 10px 8px;border:1px solid var(--mm-line);border-left:4px solid var(--mm-box-color);border-radius:var(--mm-radius-sm)}
+.mm-studio .mm-bbox-item input[type=color]{width:44px;padding:3px}
+.mm-bbox-item>.mm-row{align-items:end}
 .mm-sketch-controls .mm-run-bar{margin:12px -12px 0;padding:10px 12px 12px}
 .mm-sketch-controls [role=status]{display:block}
 

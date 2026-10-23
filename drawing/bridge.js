@@ -1,6 +1,6 @@
 localStorage.setItem('klecks-language', 'en');
 const send = (type, data = {}) => parent.postMessage({ type, ...data }, location.origin);
-let editor, saving = false, aiBusy = false, submitSuccess, submitError, canvasRevision = 0, strokeActive = false;
+let editor, saving = false, aiBusy = false, submitSuccess, submitError, canvasRevision = 0, strokeActive = false, boxTool = false;
 
 async function save() {
     if (!editor || saving) return;
@@ -16,13 +16,29 @@ async function save() {
     }
 }
 
+async function fitted(url, r, fit) {
+    const image = new Image(); image.src = url; await image.decode();
+    const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
+    const ctx = crop.getContext('2d');
+    if (fit === 'contain') {
+        const scale = Math.min(r.width / image.naturalWidth, r.height / image.naturalHeight);
+        const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, r.width, r.height);
+        ctx.drawImage(image, (r.width - width) / 2, (r.height - height) / 2, width, height);
+    } else ctx.drawImage(image, 0, 0, r.width, r.height);
+    return crop;
+}
+
 window.addEventListener('message', async event => {
     if (event.source !== parent || event.origin !== location.origin) return;
     const data = event.data;
     if (data?.type === 'manga-drawing-init' && !editor) {
         editor = new Klecks({ embedUrl: new URL('klecks/', location.href).href, onReady: () => send('manga-drawing-opened'),
-            onStrokeStart: () => { strokeActive = true; canvasRevision++; send('manga-drawing-changed'); },
-            onStrokeEnd: () => { strokeActive = false; send('manga-drawing-stroke-end'); }, onSubmit: (success, error) => {
+            // The live preview covers the drawing; hide it while drawing so the stroke stays visible.
+            onStrokeStart: () => { strokeActive = true; canvasRevision++; editor.setPreviewImage(null); send('manga-drawing-changed'); },
+            onStrokeEnd: () => { strokeActive = false; send('manga-drawing-stroke-end'); },
+            onBoxDrawn: (box, index) => send('manga-drawing-box-drawn', { box, index }),
+            onBoxToolEnd: () => { boxTool = false; send('manga-drawing-box-tool-end'); }, onSubmit: (success, error) => {
             submitSuccess = success; submitError = error; save();
         } });
         try {
@@ -45,6 +61,15 @@ window.addEventListener('message', async event => {
         }
     } else if (data?.type === 'manga-drawing-guide-region') {
         if (editor) editor.setGuideRegion(data.region);
+    } else if (data?.type === 'manga-drawing-guide-boxes') {
+        if (editor) editor.setGuideBoxes(data.boxes);
+    } else if (data?.type === 'manga-drawing-box-tool') {
+        if (editor) { boxTool = !!data.enabled; editor.setBoxTool(boxTool); }
+    } else if (data?.type === 'manga-drawing-live-preview') {
+        try {
+            if (!editor) return;
+            editor.setPreviewImage(data.imageUrl ? { image: await fitted(data.imageUrl, data.region, 'contain'), region: data.region } : null);
+        } catch (error) { send('manga-drawing-ai-error', { token: 'live', error: error.message || String(error) }); }
     } else if (data?.type === 'manga-drawing-ai-busy') aiBusy = !!data.busy;
     else if (data?.type === 'manga-drawing-snapshot') {
         try {
@@ -59,15 +84,7 @@ window.addEventListener('message', async event => {
             saving = true; document.documentElement.inert = true;
             const r = data.region;
             if (![r.x, r.y, r.width, r.height].every(Number.isInteger) || r.x < 0 || r.y < 0 || r.width < 1 || r.height < 1) throw new Error('The selected region no longer fits the canvas.');
-            const image = new Image(); image.src = data.imageUrl; await image.decode();
-            const crop = document.createElement('canvas'); crop.width = r.width; crop.height = r.height;
-            const ctx = crop.getContext('2d');
-            if (data.fit === 'contain') {
-                const scale = Math.min(r.width / image.naturalWidth, r.height / image.naturalHeight);
-                const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
-                ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, r.width, r.height);
-                ctx.drawImage(image, (r.width - width) / 2, (r.height - height) / 2, width, height);
-            } else ctx.drawImage(image, 0, 0, r.width, r.height);
+            const crop = await fitted(data.imageUrl, r, data.fit), ctx = crop.getContext('2d');
             const pixels = ctx.getImageData(0, 0, r.width, r.height), feather = Math.max(0, Number(data.feather) || 0);
             let maskPixels, clearMask;
             if (data.mask instanceof Blob) {
@@ -103,7 +120,14 @@ window.addEventListener('message', async event => {
     }
 });
 document.addEventListener('pointerdown', event => {
-    if (editor && event.target instanceof HTMLCanvasElement) send('manga-drawing-dirty');
+    // Boxes belong to the workflow settings, not to the drawing.
+    if (editor && !boxTool && event.target instanceof HTMLCanvasElement) send('manga-drawing-dirty');
 }, true);
 document.addEventListener('change', () => { if (editor) send('manga-drawing-dirty'); });
+// While drawing boxes, undo and redo apply to the boxes instead of the drawing history.
+addEventListener('keydown', event => {
+    if (!boxTool || !(event.ctrlKey || event.metaKey) || !['z', 'y'].includes(event.key.toLowerCase())) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    send(event.key.toLowerCase() === 'y' || event.shiftKey ? 'manga-drawing-box-redo' : 'manga-drawing-box-undo');
+}, true);
 send('manga-drawing-ready');

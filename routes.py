@@ -271,7 +271,7 @@ def synchronize(project_id):
                         if job['operation'] == 'describe':
                             asset = next(a for a in data['assets'] if a['id'] == job['sources'][0])
                             asset.setdefault('metadata', {})['description_prompt'] = job['text']
-                    elif job['operation'] in ('sketch', 'manga'):
+                    elif job['operation'] in ('sketch', 'manga', 'bbox'):
                         images = output.get('images', [])
                         if not images:
                             job['error'] = f"{job['name']} returned no image."
@@ -296,7 +296,7 @@ def synchronize(project_id):
                             job.setdefault('results', [])
                             if asset['id'] not in job['results']:
                                 job['results'].append(asset['id'])
-                    state = 'error' if job['operation'] in ('sketch', 'manga') and not job.get('drawing_output') else 'complete'
+                    state = 'error' if job['operation'] in ('sketch', 'manga', 'bbox') and not job.get('drawing_output') else 'complete'
                 else:
                     state = 'cancelled'
             elif prompt_id in running_ids:
@@ -308,7 +308,7 @@ def synchronize(project_id):
             elif time.time() - job['created'] > 120:
                 state = 'error'
                 job['error'] = 'The queue or history no longer contains this job; check ComfyUI history.'
-            if job['operation'] in ('sketch', 'manga') and state in ('complete', 'error', 'cancelled'):
+            if job['operation'] in ('sketch', 'manga', 'bbox') and state in ('complete', 'error', 'cancelled'):
                 contained(folder_paths.get_temp_directory(), f"manga-maker-drawing/{project_id}/{str(uuid.UUID(job['id']))}.png").unlink(missing_ok=True)
             if state != job['state']:
                 job['state'] = state

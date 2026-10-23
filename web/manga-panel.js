@@ -21,9 +21,16 @@ export function mangaControls(studio, kind, changed) {
             const input = el('select', { 'aria-label': label, onchange: e => { cfg[key] = e.target.value; update(); if (rerender) render(); } }, ...values.map(([value, text]) => el('option', { value, text })));
             input.value = cfg[key]; return field(label, input);
         };
-        const number = (label, key, step = 0.01) => slider(label, el('input', { type: 'number', 'aria-label': label, value: cfg[key], step, onchange: e => { cfg[key] = Number(e.target.value); update(); } }), ranges[key]);
+        const number = (label, key, step = 0.01) => {
+            const control = slider(label, el('input', { type: 'number', 'aria-label': label, value: cfg[key], step, onchange: e => { cfg[key] = Number(e.target.value); update(); } }), ranges[key]);
+            // Dragging updates the live preview; releasing the slider commits the change as before.
+            control.querySelector('input[type=range]').addEventListener('input', e => { cfg[key] = Number(e.target.value); changed(); });
+            return control;
+        };
+        const missing = [...['MangaLevels', 'MangaFinish', 'MangaPanel'].some(type => !studio.defs[type]) ? ['ComfyUI-MangaScreen'] : [],
+            ...cfg.pen_lines && !studio.defs.Manga2Anime_LineArt_Preprocessor ? ['comfyui_controlnet_aux (Manga Lineart)'] : []];
         element.append(select('Manga workflow', 'mode', [['lite', 'Manga-Lite · without edit model'], ['qwen', 'QWEN-Manga · Qwen Image 2.1 Turbo']], true),
-            el('small', { text: 'Requires ComfyUI-MangaScreen. Optional Manga Lineart requires comfyui_controlnet_aux and its weights. Install dependencies separately, restart ComfyUI, then refresh lists.' }),
+            ...missing.length ? [el('small', { text: `Missing ${missing.join(' and ')}. Install it, restart ComfyUI, then refresh lists.` })] : [],
             number('Working resolution · MP', 'megapixels', 0.1));
         if (cfg.mode === 'lite') {
             for (const [key, label] of [['black', 'Input black'], ['white', 'Input white'], ['gamma', 'Gamma']]) element.append(number(label, key));
@@ -36,7 +43,7 @@ export function mangaControls(studio, kind, changed) {
         }
         const finish = el('details', {}, el('summary', { text: 'Screentones and ink' }));
         for (const [key, label] of [['screen_lines', 'Screen lines'], ['white_point', 'Paper white point'], ['black_point', 'Solid black point'], ['light_tone', 'Light tone'], ['dark_tone', 'Dark tone'], ['gradation', 'Gradation'], ['white_lines', 'White lines in black'], ['pen_threshold', 'Pen threshold']]) finish.append(number(label, key, key === 'screen_lines' ? 10 : 0.01));
-        finish.append(toggle('Extract pen lines · Manga Lineart', el('input', { type: 'checkbox', checked: cfg.pen_lines, onchange: e => { cfg.pen_lines = e.target.checked; update(); } })), number('Lineart resolution · px', 'resolution', 64));
+        finish.append(toggle('Extract pen lines · Manga Lineart', el('input', { type: 'checkbox', checked: cfg.pen_lines, onchange: e => { cfg.pen_lines = e.target.checked; update(); render(); } })), number('Lineart resolution · px', 'resolution', 64));
         const panel = el('details', {}, el('summary', { text: 'Panel frame and paper' }), select('Panel shape', 'frame', ['original', '4:3 wide', '16:9 wide', '3:4 tall', '1:1'].map(v => [v, v])), select('Paper', 'paper', ['white', 'off-white', 'cream'].map(v => [v, v])));
         for (const [key, label, step] of [['crop_x', 'Crop X', 0.05], ['crop_y', 'Crop Y', 0.05], ['border', 'Panel border · px at 1024', 1], ['margin', 'Paper margin · px at 1024', 1], ['ink', 'Printed ink', 0.05]]) panel.append(number(label, key, step));
         element.append(finish, panel);

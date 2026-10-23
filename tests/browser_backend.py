@@ -113,6 +113,8 @@ async def main():
         @instance.routes.post('/test/history')
         async def history(request):
             data = await request.json(); instance.prompt_queue.history[data['id']] = data['history']; return web.json_response({'ok': True})
+        @instance.routes.get('/test/history/{id}')
+        async def history_entry(request): return web.json_response(instance.prompt_queue.get_history(request.match_info['id']))
         @instance.routes.post('/test/upload')
         async def upload(request):
             fields = {}; content = None; filename = ''

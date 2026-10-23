@@ -202,6 +202,18 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         images[0] = add('ImageScale', { image: images[0], upscale_method: 'lanczos', ...imageDimensions(config, engine === 'qwen' ? 32 : 8), crop: 'center' });
     }
     const prompt = composePrompt(config);
+    const size = imageDimensions(config, engine === 'moss' ? 16 : 8);
+    let text = prompt;
+    if (operation === 'bbox') {
+        // Boxes are stored as canvas fractions and written in the MOSS-Image layout format, like the official bbox template;
+        // MOSS-Image is trained on it and the other text-to-image engines receive it as prompt text.
+        // List widget values are wrapped in __value__ because a bare list means a link in API prompts.
+        const boxes = add('CreateBoundingBoxes', { ...size, editor_state: { __value__: config.boxes.map(box => ({
+            x: Math.round(box.x * size.width), y: Math.round(box.y * size.height), width: Math.round(box.width * size.width), height: Math.round(box.height * size.height),
+            metadata: { type: box.type === 'text' ? 'text' : 'obj', text: box.type === 'text' ? box.text || '' : '', desc: box.desc || '', palette: [] } })) } });
+        text = add('MOSSImageLayoutPrompt', { prompt, element: [boxes[0], 2], ...size,
+            character_boxes: config.boxes.flatMap((box, i) => box.type === 'character' ? [i + 1] : []).join(', ') });
+    }
     if (engine === 'moss' || engine === 'anima') {
         if (imagePaths.length) throw new Error('This workflow generates from text. Use an editing engine to connect visual references.');
         let model = add('UNETLoader', { unet_name: check('UNETLoader', 'unet_name', config.model, 'Model'), weight_dtype: config.weight_dtype });
@@ -216,13 +228,13 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
             model = add('LoraLoaderModelOnly', { model, lora_name: check('LoraLoaderModelOnly', 'lora_name', lora.name, 'LoRA'), strength_model: Number(lora.model) });
         }
         if (config.attention) model = add('ModelAttentionBackend', { model, attention: check('ModelAttentionBackend', 'attention', config.attention, 'Attention') });
-        const positive = add('CLIPTextEncode', { clip, text: prompt });
+        const positive = add('CLIPTextEncode', { clip, text });
         const negative = engine === 'moss' ? add('ConditioningZeroOut', { conditioning: positive }) : add('CLIPTextEncode', { clip, text: config.negative });
-        const latent = add(engine === 'moss' ? 'EmptyFlux2LatentImage' : 'EmptyLatentImage', { ...imageDimensions(config, engine === 'moss' ? 16 : 8), batch_size: 1 });
+        const latent = add(engine === 'moss' ? 'EmptyFlux2LatentImage' : 'EmptyLatentImage', { ...size, batch_size: 1 });
         const samples = add('KSampler', { model, positive, negative, latent_image: latent, seed: Number(config.seed), steps: Number(config.steps),
             cfg: Number(config.cfg), sampler_name: config.sampler, scheduler: config.scheduler, denoise: 1 });
         const decoded = add('VAEDecode', { samples, vae });
-        const output = add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
+        const output = operation === 'bbox' ? add('PreviewImage', { images: decoded }) : add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
         return { graph, outputNode: output[0] };
     }
     let model = add('UNETLoader', { unet_name: check('UNETLoader', 'unet_name', config.model, 'Model'), weight_dtype: config.weight_dtype });
@@ -256,13 +268,13 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
         if (kreaEditing) {
             positive = add('Krea2EditGroundedEncode', { clip, prompt, ...Object.fromEntries(images.map((image, i) => [['image', 'image_b', 'image_c', 'image_d'][i], image])),
                 grounding_px: Number(config.grounding_px ?? 768), system_prompt: config.grounding_system_prompt || '' });
-        } else positive = add('CLIPTextEncode', { clip, text: prompt });
+        } else positive = add('CLIPTextEncode', { clip, text });
     } else {
         if (config.encoder_type !== 'qwen_image') throw new Error('Qwen Image requires encoder type qwen_image.');
         const spec = defs.TextEncodeQwenImage21?.input.required.images?.[1]?.template;
         const names = spec?.names || [];
         if (images.length > names.length) throw new Error(`The installed Qwen encoder provides ${names.length} visual inputs.`);
-        const encoded = add('TextEncodeQwenImage21', { clip, vae, prompt, negative_prompt: config.negative,
+        const encoded = add('TextEncodeQwenImage21', { clip, vae, prompt: text, negative_prompt: config.negative,
             resolution: 0, ...Object.fromEntries(images.map((im, i) => [`images.${names[i]}`, im])) });
         positive = encoded; negative = [encoded[0], 1];
         if (images.length) latent = [encoded[0], 2];
@@ -284,7 +296,7 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
     }
     if (!latent) {
         // The selected VAE owns the native latent layout for both engines.
-        const pixels = add('EmptyImage', { ...imageDimensions(config), batch_size: 1, color: 16777215 });
+        const pixels = add('EmptyImage', { ...size, batch_size: 1, color: 16777215 });
         latent = add('VAEEncode', { pixels, vae });
         latent = add('LatentMultiply', { samples: latent, multiplier: 0 });
     }
@@ -314,6 +326,6 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
             cfg: Number(config.cfg), sampler_name: config.sampler, scheduler: config.scheduler, denoise: 1 });
     }
     const decoded = add('VAEDecode', { samples: sampled, vae });
-    const output = sketch ? add('PreviewImage', { images: decoded }) : add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
+    const output = sketch || operation === 'bbox' ? add('PreviewImage', { images: decoded }) : add('SaveImage', { images: decoded, filename_prefix: `manga-maker/${jobId}/result` });
     return { graph, outputNode: output[0] };
 }

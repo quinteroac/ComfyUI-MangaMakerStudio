@@ -30,7 +30,7 @@ Global configuration is stored in the active ComfyUI user directory as `manga-ma
 }
 ```
 
-`models` contains engine profiles keyed by `krea`, `krea_edit`, and `qwen`. Relevant fields include `model`, `encoder`, `encoder_type`, `vae`, `encoding`, `weight_dtype`, `encoder_device`, sampling values and engine-specific fields. Use the checkout's `web/prompts.js` (`initialSettings`), `web/models.js`, catalog profiles and installed schemas rather than creating a new configuration format. `encoding: native` is the ordinary Krea path; `bridge` is the optional local bridge path.
+`models` contains engine profiles keyed by `krea`, `krea_edit`, and `qwen`. Relevant fields include `model`, `encoder`, `encoder_type`, `vae`, `weight_dtype`, `encoder_device`, sampling values and engine-specific fields. Use the checkout's `web/prompts.js` (`initialSettings`), `web/models.js`, catalog profiles and installed schemas rather than creating a new configuration format. Krea uses encoder type `krea2`.
 
 The backend preserves omitted top-level fields, but submitted `models`, `defaults`, `presets` or `text_generator` maps replace the corresponding stored maps. For example, `{"models":{"qwen":{"model":"new.safetensors"}}}` would discard other engines and other stored Qwen fields. Read, deep-copy and merge the requested fields first. Preserve unspecified fields, including numeric zeros and user-selected device/precision settings.
 
@@ -57,6 +57,6 @@ Project configuration stores operation settings under `config`, such as `panels:
 
 For an explicitly authorized official model download, Studio uses `POST /manga-maker/models/download` with `{"engine":"krea"}`, `{"engine":"krea_edit"}` or `{"engine":"qwen"}`. Inspect the catalog first: each profile may include several large files. Poll `GET /manga-maker/models` and inspect `downloads[engine].state`; a successful POST is not completion. States include `queued`, `downloading`, `complete` and `error`. Download states can include `filename`, `received`, `total` and `error`; wait for `complete` and read configuration back before reporting success.
 
-Completion applies the profile's recommended settings globally. Existing operation overrides still win. The `qwen` profile is regular Qwen, not QWEN-Manga Turbo; Sketch LoRAs, bridge weights and optional annotator weights are separate. Do not invoke this endpoint for an inventory-only request.
+Completion applies the profile's recommended settings globally. Existing operation overrides still win. The `qwen` profile is regular Qwen, not QWEN-Manga Turbo; Sketch LoRAs and optional annotator weights are separate. Do not invoke this endpoint for an inventory-only request.
 
 Schema/UI checks do not load weights or establish image quality. Report actual inference separately from package installation, registered schemas and settings read-back.

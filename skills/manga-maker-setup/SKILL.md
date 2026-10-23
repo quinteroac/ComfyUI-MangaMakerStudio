@@ -36,9 +36,7 @@ Distinguish missing packages, packages installed but not yet loaded, missing nod
 | Text enhancement / image analysis | Native `TextGenerate`, `SaveText`, and a separately configured global text generator. Image tasks need vision support. |
 | Imported PanelComposer presets | PanelComposer is optional; Studio has its own renderer. |
 
-Use the native Krea encoder unless the user requests or already uses the bridge. `ComfyUI-Krea2-Qwen8B` is a separately supplied local package, not a verified public repository to invent or download from a guessed URL. If requested and unavailable, report that specific missing component while completing independent setup.
-
-Separate node installation from weight acquisition. Reuse registered filenames and subfolders reported by the installed schemas. For authorized official downloads use Studio's catalog-backed setup, which verifies size/hash; do not auto-download the entire catalog. Its regular Qwen profile supplies non-Turbo weights and does not satisfy QWEN-Manga's Turbo requirement. Retain user-selected compatible alternatives. For missing Sketch/Turbo LoRAs or bridge weights, use a source actually supplied or verified for those artifacts; do not substitute an unrelated LoRA.
+Separate node installation from weight acquisition. Reuse registered filenames and subfolders reported by the installed schemas. For authorized official downloads use Studio's catalog-backed setup, which verifies size/hash; do not auto-download the entire catalog. Its regular Qwen profile supplies non-Turbo weights and does not satisfy QWEN-Manga's Turbo requirement. Retain user-selected compatible alternatives. For missing Sketch/Turbo LoRAs, use a source actually supplied or verified for those artifacts; do not substitute an unrelated LoRA.
 
 ## Apply configuration without losing user data
 
@@ -46,7 +44,7 @@ Prefer the live Studio settings UI or its API. Back up existing settings before 
 
 Global values are inherited unless an operation or preset has explicit `model_overrides`. If an old selection persists, inspect that operation instead of repeatedly rewriting globals. Clear only the overrides the user asked to reset. Do not replace project configuration, layouts, sources or asset metadata to change an engine default.
 
-Validate model/encoder/VAE choices and enum values against the running `/object_info`. Native Krea uses encoder type `krea2`; the optional 8B bridge uses `stable_diffusion`; Qwen uses `qwen_image`. Keep reference order and existing LoRA order/strengths. Configure the global text generator separately from diffusion engines when requested.
+Validate model/encoder/VAE choices and enum values against the running `/object_info`. Krea uses encoder type `krea2`; Qwen uses `qwen_image`. Keep reference order and existing LoRA order/strengths. Configure the global text generator separately from diffusion engines when requested.
 
 A reload refreshes UI assets; new Python routes and custom node packages need a ComfyUI restart. Check the queue immediately beforehand. Restart only the confirmed target when idle and within the user's authorization, preserving its launch configuration. Do not interrupt active work. If a restart is unavailable or must wait, finish independent work and report that activation remains pending. Refresh node/model lists after activation.
 

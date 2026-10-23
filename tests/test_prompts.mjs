@@ -16,19 +16,19 @@ const configs = {};
 for (const engine of ['krea', 'qwen']) {
     const cfg = initialSettings(engine);
     cfg.model = options(defs, 'UNETLoader', 'unet_name')[0]; cfg.encoder = options(defs, 'CLIPLoader', 'clip_name')[0]; cfg.vae = options(defs, 'VAELoader', 'vae_name')[0];
-    cfg.adapter = options(defs, 'Krea2Qwen8BAdapter', 'adapter_name')[0]; cfg.analysis_encoder = cfg.encoder;
+    cfg.analysis_encoder = cfg.encoder;
     const loras = options(defs, 'LoraLoader', 'lora_name');
     cfg.loras = [{ name: loras[0], enabled: true, model: .7, clip: .2 }, { name: loras[1], enabled: false, model: .9, clip: .3 }, { name: loras[2] || loras[0], enabled: true, model: .4, clip: .1 }];
     configs[engine] = cfg;
 }
 const jobs = [];
-for (const encoding of ['native', 'bridge']) {
-    const cfg = { ...configs.krea, encoding, encoder_type: encoding === 'native' ? 'krea2' : 'stable_diffusion',
+{
+    const cfg = { ...configs.krea,
         identity_lora: options(defs, 'LoraLoaderModelOnly', 'lora_name')[2], shift: 1.15, denoise: .3, steps: 1, cfg: 1 };
     const built = buildPrompt(defs, 'sketch', 'krea_edit', cfg, ['sketch.png'], crypto.randomUUID());
     const nodes = Object.values(built.graph), patch = nodes.find(n => n.class_type === 'Krea2EditModelPatch');
     const sampler = nodes.find(n => n.class_type === 'KSampler');
-    const grounded = nodes.find(n => n.class_type === (encoding === 'native' ? 'Krea2EditGroundedEncode' : 'Krea2Qwen8BGroundedEncode'));
+    const grounded = nodes.find(n => n.class_type === 'Krea2EditGroundedEncode');
     assert.deepEqual(patch.inputs.source_image, grounded.inputs.image);
     assert.equal(built.graph[patch.inputs.source_image[0]].class_type, 'LoadImage');
     assert.deepEqual(built.graph[patch.inputs.source_latent[0]].inputs.pixels, patch.inputs.source_image);
@@ -44,8 +44,8 @@ for (const encoding of ['native', 'bridge']) {
     jobs.push({ engine: 'krea_edit', op: 'sketch', count: 1, ...built });
 }
 
-for (const encoding of ['native', 'bridge']) for (const count of [2, 4]) for (let index = 0; index < count; index++) for (const mode of ['original', 'manual']) {
-    const config = { ...configs.krea, engine: 'krea_edit', encoding, encoder_type: encoding === 'native' ? 'krea2' : 'stable_diffusion',
+for (const count of [2, 4]) for (let index = 0; index < count; index++) for (const mode of ['original', 'manual']) {
+    const config = { ...configs.krea, engine: 'krea_edit',
         latent_reference_index: index, size_mode: mode, aspect_ratio: '9:16', megapixels: 1.5, denoise: 0.4 };
     const paths = ['scene.png', 'subject.png', 'third.png', 'fourth.png'].slice(0, count);
     const built = buildPrompt(defs, 'panels', 'krea_edit', config, paths, crypto.randomUUID());
@@ -65,11 +65,11 @@ for (const encoding of ['native', 'bridge']) for (const count of [2, 4]) for (le
     jobs.push({ engine: 'krea_edit', op: 'panels', count, ...built });
 }
 assert.throws(() => buildPrompt(defs, 'references', 'krea_edit', { ...configs.krea, latent_reference_index: 1 }, ['scene.png'], crypto.randomUUID()), /not connected/);
-for (const [engine, encoding, operation, images] of [
-    ['krea', 'native', 'references', []], ['krea', 'bridge', 'panels', []], ['krea', 'native', 'refine', ['source.png']],
-    ['krea', 'bridge', 'references', ['source.png']], ['krea_edit', 'native', 'references', ['source.png']], ['krea_edit', 'bridge', 'panels', ['source.png']],
+for (const [engine, operation, images] of [
+    ['krea', 'references', []], ['krea', 'panels', []], ['krea', 'refine', ['source.png']],
+    ['krea', 'references', ['source.png']], ['krea_edit', 'references', ['source.png']], ['krea_edit', 'panels', ['source.png']],
 ]) {
-    const config = { ...configs.krea, encoding, encoder_type: encoding === 'native' ? 'krea2' : 'stable_diffusion', shift: 2.35 };
+    const config = { ...configs.krea, shift: 2.35 };
     const built = buildPrompt(defs, operation, engine, config, images, crypto.randomUUID());
     const shift = Object.entries(built.graph).find(([, n]) => n.class_type === 'ModelSamplingFlux');
     assert.equal(shift[1].inputs.base_shift, 2.35); assert.equal(shift[1].inputs.max_shift, 2.35);
@@ -117,10 +117,10 @@ assert.equal(composePrompt({ prompt_sections: sections, prompt: free }), expecte
 assert.equal(composePrompt({ prompt_sections: { lighting: '  ' }, prompt: '  free prompt\n' }), '  free prompt\n');
 assert.equal(composePrompt({ prompt_sections: {}, prompt: '' }), '');
 assert.equal(composePrompt({ prompt_sections: { ...sections, pose: 'Standing.' }, prompt: free }), expected.replace('Seated, looking forward.', 'Standing.'));
-for (const [engine, encoding] of [['krea', 'bridge'], ['krea', 'native'], ['qwen', 'bridge']]) {
-    const config = { ...configs[engine], prompt_sections: sections, prompt: free, encoding, ...(encoding === 'native' ? { encoder_type: 'krea2' } : {}) };
+for (const engine of ['krea', 'qwen']) {
+    const config = { ...configs[engine], prompt_sections: sections, prompt: free };
     const built = buildPrompt(defs, 'references', engine, config, [], crypto.randomUUID());
-    const type = engine === 'qwen' ? 'TextEncodeQwenImage21' : encoding === 'native' ? 'CLIPTextEncode' : 'Krea2Qwen8BEncode';
+    const type = engine === 'qwen' ? 'TextEncodeQwenImage21' : 'CLIPTextEncode';
     const encoder = Object.values(built.graph).find(n => n.class_type === type);
     assert.equal(encoder.inputs[engine === 'qwen' ? 'prompt' : 'text'], expected);
     assert.equal(config.prompt, free); assert.equal(config.prompt_sections, sections);
@@ -151,21 +151,21 @@ for (const engine of ['krea', 'qwen']) {
             } else if (count && op !== 'refine') {
                 assert(nodes.some(n => n.class_type === 'Krea2EditModelPatch'));
                 assert(!nodes.some(n => n.class_type.includes('Ostris')));
-                assert.equal(Object.keys(nodes.find(n => n.class_type === 'Krea2Qwen8BGroundedEncode').inputs).filter(k => /^image(_b)?$/.test(k)).length, count);
+                assert.equal(Object.keys(nodes.find(n => n.class_type === 'Krea2EditGroundedEncode').inputs).filter(k => /^image(_b)?$/.test(k)).length, count);
             }
             jobs.push({ engine, op, count, ...built });
         }
     }
 }
-for (const operation of ['references', 'panels']) for (const encoding of ['native', 'bridge']) for (const count of [1, 2, 3, 4]) {
+for (const operation of ['references', 'panels']) for (const count of [1, 2, 3, 4]) {
     const cfg = { ...configs.krea, ...initialSettings('krea_edit'), model: configs.krea.model, encoder: configs.krea.encoder, vae: configs.krea.vae,
-        adapter: configs.krea.adapter, loras: configs.krea.loras, encoding, encoder_type: encoding === 'native' ? 'krea2' : 'stable_diffusion',
+        loras: configs.krea.loras,
         prompt_sections: sections, prompt: free, ref_boost: 1.3, ref_boost_a: 0.8, fit_mode: 'fit', grounding_px: 768 };
     const built = buildPrompt(defs, operation, 'krea_edit', cfg, ['scene.png', 'subject.png', 'third.png', 'fourth.png'].slice(0, count), crypto.randomUUID());
     const graph = built.graph, nodes = Object.values(graph);
     const patch = nodes.find(n => n.class_type === 'Krea2EditModelPatch');
     const sampler = nodes.find(n => n.class_type === 'KSampler');
-    const grounded = nodes.find(n => n.class_type === (encoding === 'native' ? 'Krea2EditGroundedEncode' : 'Krea2Qwen8BGroundedEncode'));
+    const grounded = nodes.find(n => n.class_type === 'Krea2EditGroundedEncode');
     assert.equal(grounded.inputs.prompt, expected);
     assert.equal(graph[grounded.inputs.image[0]].inputs.image, 'scene.png');
     assert.equal(!!grounded.inputs.image_b, count >= 2);
@@ -193,14 +193,13 @@ for (const operation of ['references', 'panels']) for (const encoding of ['nativ
     const attention = graph[shifted.inputs.model[0]];
     assert.equal(attention.class_type, 'ModelAttentionBackend');
     assert.deepEqual(attention.inputs.model, [loras[1][0], 0]);
-    assert.equal(nodes.some(n => n.class_type === 'Krea2Qwen8BAdapter'), encoding === 'bridge');
     assert(!nodes.some(n => n.class_type.includes('Ostris') || n.class_type === 'LoraLoader'));
     jobs.push({ engine: 'krea_edit', op: operation, count, ...built });
 }
 for (const count of [0, 5]) assert.throws(() => buildPrompt(defs, 'references', 'krea_edit', configs.krea, Array(count).fill('image.png'), crypto.randomUUID()), /at least one|up to four/);
 for (const duplicate of [false, true]) {
     const identity = options(defs, 'LoraLoaderModelOnly', 'lora_name')[0];
-    const cfg = { ...configs.krea, encoding: 'native', encoder_type: 'krea2', identity_lora: identity, loras: duplicate ? [{ name: identity, enabled: true, model: .6 }] : [] };
+    const cfg = { ...configs.krea, identity_lora: identity, loras: duplicate ? [{ name: identity, enabled: true, model: .6 }] : [] };
     const built = buildPrompt(defs, 'panels', 'krea_edit', cfg, ['original.png'], crypto.randomUUID());
     const loras = Object.entries(built.graph).filter(([, n]) => n.class_type === 'LoraLoaderModelOnly');
     assert.equal(loras.length, 1); assert.equal(loras[0][1].inputs.lora_name, identity); assert.equal(loras[0][1].inputs.strength_model, duplicate ? .6 : 1);
@@ -258,7 +257,7 @@ for (const job of jobs) {
     assert(['LoraLoader', 'LoraLoaderModelOnly', 'UNETLoader'].includes(job.graph[attention[0][1].inputs.model[0]].class_type));
 }
 for (const engine of ['krea', 'krea_edit']) {
-    const config = { ...configs.krea, encoding: 'native', encoder_type: 'krea2' };
+    const config = { ...configs.krea };
     const paths = engine === 'krea_edit' ? ['source.png'] : [];
     for (const [schema, attention] of [[defs, 'pytorch attention'], [{ ...defs, ModelAttentionBackend: { ...defs.ModelAttentionBackend, input: { required: { model: ['MODEL'], attention: [['pytorch attention']] } } } }, '']]) {
         const built = buildPrompt(schema, 'references', engine, { ...config, attention }, paths, crypto.randomUUID());

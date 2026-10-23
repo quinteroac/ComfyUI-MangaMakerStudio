@@ -36,7 +36,7 @@ Example requests:
 | Dependencies | Install only packages needed for the requested features; distinguish custom nodes from model weights |
 | Existing configuration | Preserve projects, root folder, presets, other engines and operation overrides; back up settings before writing |
 | Models and encoders | Reuse registered resources, match encoder types and distinguish regular Qwen from QWEN-Manga Turbo |
-| Optional features | Keep the separate local Qwen8B bridge, pen extraction and its annotator downloads within the requested scope |
+| Optional features | Keep pen extraction and its annotator downloads within the requested scope |
 | Activation | Check the queue and preserve the server's launch configuration for an authorized idle restart |
 | Verification | Read settings back, inspect loaded schemas and check the UI when available; identify what still needs activation or weights |
 

@@ -5,7 +5,11 @@ const catalog = JSON.parse(fs.readFileSync(new URL('../model-catalog.json', impo
 catalog.artifacts.forEach(a => a.installed = `existing/${a.filename}`);
 const settings = { defaults: {}, models: {} }; globalModels(settings, catalog);
 assert.equal(settings.models.krea.steps, 8); assert.equal(settings.models.qwen.steps, 25);
-assert.equal(settings.models.krea.encoding, 'native'); assert(settings.models.krea_edit.identity_lora.startsWith('existing/'));
+assert.equal(settings.models.krea.encoder_type, 'krea2'); assert(settings.models.krea_edit.identity_lora.startsWith('existing/'));
+const bridged = { defaults: {}, models: { krea: { encoding: 'bridge', adapter: 'bridge.safetensors', encoder: 'qwen3vl_8b.safetensors', encoder_type: 'stable_diffusion', steps: 6 } } };
+globalModels(bridged, catalog);
+assert.equal(bridged.models.krea.encoder, settings.models.krea.encoder); assert.equal(bridged.models.krea.encoder_type, 'krea2');
+assert.equal(bridged.models.krea.steps, 6); assert(!('encoding' in bridged.models.krea) && !('adapter' in bridged.models.krea));
 const config = { prompt: 'Keep this prompt.', references: ['one'], loras: [{ name: 'manual', enabled: true }] };
 inheritModels(config, settings.models.krea, 'krea'); assert.equal(config.model, settings.models.krea.model);
 config.model_overrides.encoder = 'custom.safetensors'; inheritModels(config, settings.models.krea, 'krea');

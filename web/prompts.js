@@ -144,16 +144,16 @@ export function textInstruction(task, config, section) {
 }
 
 export const initialSettings = (engine) => ({
-    engine, model: '', encoder: '', vae: '', adapter: '', encoder_type: engine === 'qwen' ? 'qwen_image' : 'stable_diffusion',
-    encoding: 'bridge', weight_dtype: 'default', encoder_device: 'default', prompt: '', prompt_sections: {}, negative: '',
+    engine, model: '', encoder: '', vae: '', encoder_type: engine === 'qwen' ? 'qwen_image' : 'stable_diffusion',
+    weight_dtype: 'default', encoder_device: 'default', prompt: '', prompt_sections: {}, negative: '',
     aspect_ratio: '1:1', megapixels: 1, seed: 0, random_seed: true, steps: engine === 'qwen' ? 8 : 12,
     cfg: 1, sampler: 'euler', scheduler: engine === 'qwen' ? 'beta' : 'simple', denoise: 0.65,
     attention: '', cache_device: 'auto', cache_dtype: 'default',
     ref_boost: 1, ref_boost_a: 1, fit_mode: 'fit', grounding_px: 768, grounding_system_prompt: '',
     references: [], loras: [], max_length: 512, analysis_prompts: {},
     analysis_encoder: '', analysis_encoder_type: 'stable_diffusion', finish_mode: 'refine',
-    ...(engine === 'krea_edit' ? { encoding: 'native', encoder_type: 'krea2', steps: 4, latent_reference: '' } : {}),
-    ...(['krea', 'krea_edit'].includes(engine) ? { shift: 1.15 } : {}),
+    ...(engine === 'krea_edit' ? { steps: 4, latent_reference: '' } : {}),
+    ...(['krea', 'krea_edit'].includes(engine) ? { encoder_type: 'krea2', shift: 1.15 } : {}),
     ...(['moss', 'anima'].includes(engine) ? { steps: 8, sampler: 'er_sde', scheduler: 'simple',
         encoder_type: engine === 'moss' ? 'moss_image' : 'qwen_image', accelerator_lora: engine === 'moss' ? 'moss/lora.safetensors' : '',
         negative: engine === 'anima' ? 'score_6, score_5, score_4, worst quality, low quality, text, censored, deformed, bad hand, blurry, (watermark),' : '' } : {}),
@@ -252,20 +252,11 @@ export function buildPrompt(defs, operation, engine, config, imagePaths, jobId) 
     }
     let positive, negative, latent;
     if (isKrea) {
+        if (config.encoder_type !== 'krea2') throw new Error('Krea2 requires encoder type krea2.');
         if (kreaEditing) {
-            const type = config.encoding === 'bridge' ? 'Krea2Qwen8BGroundedEncode' : 'Krea2EditGroundedEncode';
-            const expected = config.encoding === 'bridge' ? 'stable_diffusion' : 'krea2';
-            if (config.encoder_type !== expected) throw new Error(`This Krea2 editing path requires an encoder of type ${expected}.`);
-            positive = add(type, { clip, prompt, ...Object.fromEntries(images.map((image, i) => [['image', 'image_b', 'image_c', 'image_d'][i], image])),
+            positive = add('Krea2EditGroundedEncode', { clip, prompt, ...Object.fromEntries(images.map((image, i) => [['image', 'image_b', 'image_c', 'image_d'][i], image])),
                 grounding_px: Number(config.grounding_px ?? 768), system_prompt: config.grounding_system_prompt || '' });
-        } else if (config.encoding === 'bridge') {
-            if (config.encoder_type !== 'stable_diffusion') throw new Error('The Qwen-VL 8B bridge requires CLIPLoader type stable_diffusion.');
-            positive = add('Krea2Qwen8BEncode', { clip, text: prompt });
-        } else {
-            if (config.encoder_type !== 'krea2') throw new Error('The native Krea2 path requires encoder type krea2.');
-            positive = add('CLIPTextEncode', { clip, text: prompt });
-        }
-        if (config.encoding === 'bridge') positive = add('Krea2Qwen8BAdapter', { conditioning: positive, adapter_name: check('Krea2Qwen8BAdapter', 'adapter_name', config.adapter, 'Bridge') });
+        } else positive = add('CLIPTextEncode', { clip, text: prompt });
     } else {
         if (config.encoder_type !== 'qwen_image') throw new Error('Qwen Image requires encoder type qwen_image.');
         const spec = defs.TextEncodeQwenImage21?.input.required.images?.[1]?.template;

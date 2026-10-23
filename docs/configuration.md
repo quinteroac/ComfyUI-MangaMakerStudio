@@ -19,7 +19,7 @@ An installed filename is not enough to establish compatibility: the diffusion mo
 
 ## Global configuration and downloads
 
-**Sampling → Shift** adjusts the sampling shift for Krea2 and Krea2 Edit, including native, bridge and refinement paths. The default is **1.15**. An empty individual field inherits the engine's global Shift; if the Settings field is also empty, the model's own value is used. Presets can store an individual value or inherit the global value. An explicit shift is fixed and independent of resolution.
+**Sampling → Shift** adjusts the sampling shift for Krea2 and Krea2 Edit, including refinement. The default is **1.15**. An empty individual field inherits the engine's global Shift; if the Settings field is also empty, the model's own value is used. Presets can store an individual value or inherit the global value. An explicit shift is fixed and independent of resolution.
 
 In **Settings → Global model engine**, configure **Krea2**, **Krea2 Edit**, **Qwen Image 2.1**, **Moss** and **Anima** once. Values are shared across operations that support each engine; the page analysis encoder inherits the engine's encoder unless individually overridden. The text generator keeps its separate global CLIP.
 
@@ -39,7 +39,7 @@ Moss uses `moss/moss_image_sft_int8_convrot.safetensors`, `moss/qwen3.5_9b_int8_
 
 Anima uses `anima/anima-turbo-v1.0-int8-convrot.safetensors`, `qwen_3_06b_base.safetensors` with loading type **qwen_image**, and `wan_2.1_vae.safetensors`. It uses standard text encoding for both prompts, with the workflow's editable negative prompt. Set/Get routing is replaced by direct connections; the aspect-ratio helper is replaced by Studio's AR/MP controls. Neither engine requires those UI helper nodes or external workflow files at runtime.
 
-The bundled catalog pins revisions and hashes from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) and [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1), based on the official [Krea2 Turbo](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json), [Qwen T2I](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json) and [Qwen Edit](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json) workflows. Qwen uses the template's 25 steps; its comment distinguishes this setting from the original pipeline's recommendation of 40–50 steps. Krea Edit uses its [author's](https://huggingface.co/conradlocke/krea2-identity-edit) recommendation of 8–12 steps; there is no official Comfy-Org workflow for this community LoRA. It is the only downloadable LoRA exception; styles, accelerators, bridges and additional enhancer encoders are not downloaded.
+The bundled catalog pins revisions and hashes from [Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) and [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1), based on the official [Krea2 Turbo](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json), [Qwen T2I](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_t2i.json) and [Qwen Edit](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_2_1_image_edit.json) workflows. Qwen uses the template's 25 steps; its comment distinguishes this setting from the original pipeline's recommendation of 40–50 steps. Krea Edit uses its [author's](https://huggingface.co/conradlocke/krea2-identity-edit) recommendation of 8–12 steps; there is no official Comfy-Org workflow for this community LoRA. It is the only downloadable LoRA exception; styles, accelerators and additional enhancer encoders are not downloaded.
 
 When a download completes, the recommended models and parameters are saved on the server as the engine's global configuration, even if the browser has closed. The interface updates inherited fields when reopened or when completion is detected. Explicit preset values and individual overrides are respected. **Use official models and recommended sampling** applies these values when all weights are already installed. The catalog and prompt construction are bundled with the plugin: no workflow files or runtime metadata downloads are required.
 
@@ -48,7 +48,7 @@ When a download completes, the recommended models and parameters are saved on th
 | Task | Useful starting point | Configuration that matters |
 | --- | --- | --- |
 | Generate a new reference or panel | Krea2 or Qwen | Model family, structured prompt, output aspect ratio and MP |
-| Preserve identity while editing references | Krea2 · edit | Native/bridge path, source order, Identity Edit LoRA, fidelity and initial latent |
+| Preserve identity while editing references | Krea2 · edit | Source order, Identity Edit LoRA, fidelity and initial latent |
 | Turn a sketch into rendered art | Sketch to Art in Klecks | Separate Sketch/Turbo LoRAs, denoise, region and layer blending |
 | Add manga tones without redrawing | Art to Manga Panel → Manga-Lite | Input levels, screen lines, black/white points and paper/frame |
 | Redraw painted art before adding tones | Art to Manga Panel → QWEN-Manga | Compatible Qwen Image 2.1 Turbo weights, instruction and sigma schedule |
@@ -56,8 +56,8 @@ When a download completes, the recommended models and parameters are saved on th
 
 The regular Qwen download profile uses the non-Turbo model and its own sampling defaults. QWEN-Manga expects compatible **Turbo** weights and uses its editable sigma schedule; select these separately under its model controls.
 
-- **Krea2 + bridge:** `ComfyUI-Krea2-Qwen8B`, a Qwen3-VL 8B encoder loaded as **stable_diffusion**, a compatible bridge and a VAE compatible with the checkpoint. The alternative native path uses **krea2** without a bridge.
-- **Krea2 editing and visual references:** grounded encoding of one to four images, VAEEncode for each source, `Krea2EditModelPatch`, zeroed negative conditioning and KSampler. The output latent is also connected to `target_latent` to preprocess references before sampling. This uses the final workflow's design, not the Ostris patch. The 8B bridge was trained with text, so its visual use remains experimental.
+- **Krea2:** the Krea2 encoder loaded as **krea2** and a VAE compatible with the checkpoint.
+- **Krea2 editing and visual references:** grounded encoding of one to four images, VAEEncode for each source, `Krea2EditModelPatch`, zeroed negative conditioning and KSampler. The output latent is also connected to `target_latent` to preprocess references before sampling. This uses the final workflow's design, not the Ostris patch.
 - **Krea2 refinement:** VAEEncode of the original and denoising through the existing sampler. It does not use additional references or offer masks.
 - **Qwen:** native `TextEncodeQwenImage21` and `QwenImage21Cache` nodes, a **qwen_image** encoder and compatible model/VAE. References connect to the visual encoder and VAE. The first reference determines size; `resolution=0` avoids additional scaling except for the node's adjustment to multiples of 32. The installed version's number of sockets is respected.
 - **Analysis:** `TextGenerate`, `CLIPLoader` and `SaveText`; select an encoder with vision and text generation support. The diffusion model is not loaded.

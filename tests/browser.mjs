@@ -95,8 +95,7 @@ try {
     const configure = async () => {
         const view = studio.locator('.mm-workspace:visible');
         await view.locator('summary').filter({ hasText: 'Models and advanced settings' }).click();
-        if (await view.getByLabel('Conditioning path', { exact: true }).count()) await view.getByLabel('Conditioning path', { exact: true }).selectOption('bridge');
-        for (const [label, value] of [['Diffusion model', list('UNETLoader','unet_name')[0]], ['Text encoder', list('CLIPLoader','clip_name')[0]], ['VAE', list('VAELoader','vae_name')[0]], ['Bridge / adapter', list('Krea2Qwen8BAdapter','adapter_name')[0]]]) await view.getByLabel(label, { exact: true }).fill(value);
+        for (const [label, value] of [['Diffusion model', list('UNETLoader','unet_name')[0]], ['Text encoder', list('CLIPLoader','clip_name')[0]], ['VAE', list('VAELoader','vae_name')[0]]]) await view.getByLabel(label, { exact: true }).fill(value);
     };
     // Sampling is simulated only at the queue boundary; staging and result persistence are real test storage.
     await configure();
@@ -166,7 +165,7 @@ try {
     await studio.locator('.mm-references .mm-asset').first().waitFor(); assert.equal(queued.length, 1);
     assert.equal(Object.values(queued[0].prompt).filter(n => n.class_type === 'SaveImage').length, 1);
     assert.equal(Object.values(queued[0].prompt).find(n => n.class_type === 'ModelSamplingFlux').inputs.max_shift, 1.85);
-    assert.equal(Object.values(queued[0].prompt).find(n => n.class_type === 'Krea2Qwen8BEncode').inputs.text, structuredPrompt);
+    assert.equal(Object.values(queued[0].prompt).find(n => n.class_type === 'CLIPTextEncode').inputs.text, structuredPrompt);
     const imageSize = Object.values(queued[0].prompt).find(n => n.class_type === 'EmptyImage').inputs;
     assert.equal(imageSize.width, 920); assert.equal(imageSize.height, 1632);
     await studio.getByRole('button', { name: 'Panels', exact: true }).click();
@@ -592,8 +591,6 @@ try {
     const targetPixels = Object.values(editGraph).find(n => n.class_type === 'ImageScale').inputs;
     assert.deepEqual(targetPixels.image, groundedEdit.inputs.image_d);
     assert.equal(targetPixels.width, 1632); assert.equal(targetPixels.height, 920);
-    await editView.getByLabel('Conditioning path', { exact: true }).selectOption('bridge');
-    await editView.getByLabel('Bridge / adapter', { exact: true }).fill(list('Krea2Qwen8BAdapter', 'adapter_name')[0]);
     for (const id of extraReferences) await editView.locator(`.mm-reference-strip [data-asset-id="${id}"]`).getByRole('button', { name: 'Remove', exact: true }).click();
     await editView.locator(`.mm-reference-strip [data-asset-id="${generatedReference}"]`).getByRole('button', { name: 'Remove', exact: true }).click();
     assert.equal(await editView.getByLabel('Initial latent image', { exact: true }).inputValue(), '');
@@ -603,11 +600,10 @@ try {
     await choose(editView, 'Output size', 'original');
     await editView.getByRole('button', { name: 'Edit reference', exact: true }).click();
     await page.waitForFunction(count => document.querySelectorAll('.mm-references .mm-asset').length === count + 2, beforeEditCount);
-    assert(Object.values(queued.at(-1).prompt).some(n => n.class_type === 'Krea2Qwen8BGroundedEncode'));
-    assert(Object.values(queued.at(-1).prompt).some(n => n.class_type === 'Krea2Qwen8BAdapter'));
-    const bridgeNodes = Object.values(queued.at(-1).prompt), bridgeSampler = bridgeNodes.find(n => n.class_type === 'KSampler');
-    assert.equal(bridgeSampler.inputs.denoise, .3);
-    assert.deepEqual(bridgeSampler.inputs.latent_image, bridgeNodes.find(n => n.class_type === 'Krea2EditModelPatch').inputs.source_latent);
+    const latentNodes = Object.values(queued.at(-1).prompt), latentSampler = latentNodes.find(n => n.class_type === 'KSampler');
+    assert(latentNodes.some(n => n.class_type === 'Krea2EditGroundedEncode'));
+    assert.equal(latentSampler.inputs.denoise, .3);
+    assert.deepEqual(latentSampler.inputs.latent_image, latentNodes.find(n => n.class_type === 'Krea2EditModelPatch').inputs.source_latent);
     const editedProject = await (await fetch(`${backend.url}/manga-maker/projects/${backend.project}`)).json();
     const editJobs = editedProject.jobs.filter(j => j.engine === 'krea_edit');
     assert.equal(editJobs.length, 2); assert(editJobs.every(j => j.parent === importedReference.id && j.kind === 'references'));

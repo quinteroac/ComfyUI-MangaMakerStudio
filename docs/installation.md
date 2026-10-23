@@ -24,11 +24,9 @@ Managing projects, importing images, drawing with Klecks, editing pages and expo
 | Feature | Dependencies |
 | --- | --- |
 | Qwen: generation, editing and finishing | ComfyUI with the native `TextEncodeQwenImage21` node. `QwenImage21Cache` is optional and used when available. |
-| Krea2 with bridge | `ComfyUI-Krea2-Qwen8B` (separately supplied local package): `Krea2Qwen8BEncode` and `Krea2Qwen8BAdapter`. |
-| Native Krea2 Edit and visual references | [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit): `Krea2EditModelPatch` and `Krea2EditGroundedEncode`, with a `krea2` encoder and vision weights. |
-| Krea2 Edit with 8B bridge | `Krea2EditModelPatch` from [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit); `Krea2Qwen8BGroundedEncode` and `Krea2Qwen8BAdapter` from `ComfyUI-Krea2-Qwen8B`. Qwen3-VL 8B encoder with vision and loading type `stable_diffusion`. |
-| Native Krea2 | ComfyUI with `krea2` encoder support in `CLIPLoader`; the bridge package is not required. |
-| Sketch to Art in Klecks | The native Krea2 Edit package, or its bridge dependencies listed above; native VAE, sampling and image nodes. Sketch/Turbo LoRA weights are selected separately. |
+| Krea2 Edit and visual references | [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit): `Krea2EditModelPatch` and `Krea2EditGroundedEncode`, with a `krea2` encoder and vision weights. |
+| Krea2 | ComfyUI with `krea2` encoder support in `CLIPLoader`. |
+| Sketch to Art in Klecks | The Krea2 Edit package listed above; native VAE, sampling and image nodes. Sketch/Turbo LoRA weights are selected separately. |
 | Art to Manga Panel · Manga-Lite | [ComfyUI-MangaScreen](https://github.com/ashukae/ComfyUI-MangaScreen): `MangaLevels`, `MangaFinish` and `MangaPanel`. Requires `opencv-python` and `numpy`; no diffusion model is needed. |
 | Art to Manga Panel · QWEN-Manga | [ComfyUI-MangaScreen](https://github.com/ashukae/ComfyUI-MangaScreen): `MangaFinish` and `MangaPanel`; native ComfyUI `TextEncodeQwenImage21`, `ManualSigmas` and sampling nodes; compatible Qwen Image 2.1 Turbo model, encoder and VAE. `QwenImage21Cache` is optional. |
 | Art to Manga Panel · Extract pen lines | [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux): `Manga2Anime_LineArt_Preprocessor` and its Manga Lineart weights. Optional in both manga workflows and disabled initially. |
@@ -46,11 +44,11 @@ python -m pip install -r custom_nodes/ComfyUI-MangaScreen/requirements.txt
 
 For **Krea2 Edit** and **Sketch to Art**, install [comfyui-krea2edit](https://github.com/lbouaraba/comfyui-krea2edit#installation) and its compatible weights. For optional pen extraction, follow the [ControlNet Auxiliary Preprocessors installation instructions](https://github.com/Fannovel16/comfyui_controlnet_aux#installation). Use the Python executable of your ComfyUI environment, including its embedded Python when applicable. Restart ComfyUI when no jobs are active, reload the browser and use **Refresh lists**.
 
-The optional `ComfyUI-Krea2-Qwen8B` bridge is a separately supplied local package; it is not bundled or installed by Manga Maker Studio. It also needs its trained bridge weights. The native Krea2/Krea2 Edit paths use their native encoder and do not require this bridge. The upstream MangaScreen comparison node and the original workflows' utility nodes are not required by Studio's built-in graphs.
+The upstream MangaScreen comparison node and the original workflows' utility nodes are not required by Studio's built-in graphs.
 
 Generation also uses ComfyUI's standard loading, sampling, VAE and image nodes; LoRAs use `LoraLoader`, or `LoraLoaderModelOnly` for Krea2 Edit. The AR/MP selector creates an empty latent through the selected VAE; it does not require YAP-Utilities' `IllustriousAspectRatio`. All Krea2 and Krea2 Edit image flows, including Sketch to Art and refinement, use the native `ModelAttentionBackend` node before the sampling/edit patches. The default is `comfy kitchen attention`, matching the Sketch to Art workflow; installations that do not expose it use `pytorch attention`. Select another backend in global model settings or an individual preset to override it. Qwen adds this node only when an explicit backend is selected. If a node is missing, the operation reports its name; other features remain available. After installing or enabling a package, restart ComfyUI when no jobs are active and use **Refresh lists**.
 
-Model, encoder, VAE and bridge files are separate requirements from nodes. Guided downloads cover the official weights in the catalog in [Configuration](configuration.md#global-configuration-and-downloads); bridges and other LoRAs must be installed manually. Downloading weights does not install or update node packages.
+Model, encoder and VAE files are separate requirements from nodes. Guided downloads cover the official weights in the catalog in [Configuration](configuration.md#global-configuration-and-downloads); other LoRAs must be installed manually. Downloading weights does not install or update node packages.
 
 ## Choosing what to install
 

@@ -201,9 +201,6 @@ export class Studio {
         if (engine === 'moss') technical.append(combo('Eight-step LoRA', options(this.defs, 'LoraLoaderModelOnly', 'lora_name'), cfg.accelerator_lora, set('accelerator_lora')));
         if (engine === 'krea_edit' && space !== 'sketch') technical.append(combo('Identity Edit LoRA', options(this.defs, 'LoraLoaderModelOnly', 'lora_name'), cfg.identity_lora, set('identity_lora')));
         if (engine === 'krea' || engine === 'krea_edit') {
-            const adapter = combo('Bridge / adapter', options(this.defs, 'Krea2Qwen8BAdapter', 'adapter_name'), cfg.adapter, set('adapter')); adapter.hidden = cfg.encoding !== 'bridge';
-            const encoding = el('select', { 'aria-label': 'Conditioning path', onchange: e => { set('encoding')(e.target.value); set('encoder_type')(cfg.encoding === 'bridge' ? 'stable_diffusion' : 'krea2'); encoderType.querySelector('input').value = cfg.encoder_type; adapter.hidden = cfg.encoding !== 'bridge'; } }, el('option', { value: 'bridge', text: 'Qwen-VL 8B + bridge' }), el('option', { value: 'native', text: 'Native Krea2 encoder' })); encoding.value = cfg.encoding;
-            technical.append(field('Conditioning path', encoding), adapter);
             const edit = el('details', {}, el('summary', { text: 'Krea2 editing · references' }));
             for (const [label, key, step, range] of [['Last reference / subject fidelity', 'ref_boost', 0.01, [0, 2]], ['Earlier references / scene fidelity', 'ref_boost_a', 0.01, [0, 2]], ['Maximum grounding dimension · px', 'grounding_px', 64, [0, 2048]]]) {
                 edit.append(slider(label, el('input', { type: 'number', value: cfg[key] ?? (key === 'grounding_px' ? 768 : 1), step, onchange: e => set(key)(Number(e.target.value)) }), range));
@@ -497,7 +494,7 @@ export class Studio {
                 refresh(); update(); this.jobs();
             }))); update(); this.modal('Connect references', picker);
         }, {}, true));
-        box.append(el('small', { text: cfg.engine === 'qwen' ? 'Qwen: images are connected to the vision encoder and VAE. Inherit the size of the first reference or set AR and MP manually.' : 'Krea2 Edit: connect one to four references in order. For scene/subject edits, place the scene first and the subject last. Use compatible editing models and LoRAs. The 8B bridge requires a vision encoder and was trained with text.' }));
+        box.append(el('small', { text: cfg.engine === 'qwen' ? 'Qwen: images are connected to the vision encoder and VAE. Inherit the size of the first reference or set AR and MP manually.' : 'Krea2 Edit: connect one to four references in order. For scene/subject edits, place the scene first and the subject last. Use compatible editing models and LoRAs.' }));
         slot.append(box);
     }
     assetPickerItem(a, action) { const b = button('', action, { 'data-asset-id': a.id }); b.append(el('img', { src: assetUrl(this.project.id, a.id, true), alt: a.name, loading: 'lazy' }), el('span', { text: `${a.name} · ${a.kind}` })); return b; }

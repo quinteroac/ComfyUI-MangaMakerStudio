@@ -14,7 +14,7 @@ from PIL import Image, UnidentifiedImageError
 import folder_paths
 from server import PromptServer
 
-from .storage import ProjectStore, contained
+from .storage import ProjectStore, RevisionConflict, contained
 from .models import ModelDownloads
 
 store = ProjectStore(Path(folder_paths.get_user_directory()) / 'manga-maker-settings.json',
@@ -28,6 +28,8 @@ def endpoint(fn):
     async def wrapped(request):
         try:
             return await fn(request)
+        except RevisionConflict as error:
+            return web.json_response({'error': str(error)}, status=409)
         except FileNotFoundError as error:
             return web.json_response({'error': f'Missing file: {error.filename}'}, status=404)
         except (ValueError, KeyError, UnidentifiedImageError) as error:

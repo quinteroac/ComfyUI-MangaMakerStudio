@@ -13,6 +13,7 @@ The embed is bundled in `drawing/klecks/`, outside ComfyUI's JavaScript extensio
 Inspected environment: ComfyUI 0.39.0 and frontend 1.55.14. Uses `app.registerExtension`, the public sidebar and commands, DOM dialogs and the existing API; it does not replace the central area through private APIs.
 
 - Storage and route tests: isolation, versions, originals, duplication, relocation, containment and results associated with the correct project.
+- Story and assistant tests: story actions, context, script layouts, GGUF catalog and projector pairing, streamed answers, history, keep-loaded reuse and release before workflows. Route tests use a fake inference worker; no model is loaded.
 - Prompt tests: Krea/Qwen paths, actual reference connections, LoRA chains reaching the sampler, separate analysis and missing dependencies. Installed V3 schemas were checked without loading models.
 - Browser tests: references, panels, refinement, composition, analysis and finishing with the real frontend and isolated storage. Only the generative queue is simulated; models are not loaded. Pixel-identical export, reopening, light/dark themes, a small window and an unchanged ComfyUI graph.
 
@@ -20,12 +21,15 @@ Inspected environment: ComfyUI 0.39.0 and frontend 1.55.14. Uses `app.registerEx
 # Run these commands from the ComfyUI directory:
 python -m unittest discover -s custom_nodes/ComfyUI-MangaMakerStudio/tests -v
 node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_models.mjs
+node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_story.mjs
+node custom_nodes/ComfyUI-MangaMakerStudio/tests/test_mcp.mjs
 node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_prompts.mjs /path/object_info.json
 node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/test_manga.mjs /path/object_info.json /tmp/manga-screen-graphs.json
 python custom_nodes/ComfyUI-MangaMakerStudio/tests/check_schemas.py /path/object_info.json /tmp/manga-built-prompts.json
 # Install Playwright separately for browser development; it is not a product dependency:
 CHROMIUM_PATH=/path/chromium node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/browser.mjs /path/playwright /path/python
 CHROMIUM_PATH=/path/chromium node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/browser_sketch.mjs /path/playwright /path/python
+CHROMIUM_PATH=/path/chromium node --experimental-default-type=module custom_nodes/ComfyUI-MangaMakerStudio/tests/browser_story.mjs /path/playwright /path/python
 ```
 
 Sources checked against the installed code: [extensions](https://docs.comfy.org/custom-nodes/js/javascript_overview), [sidebar](https://docs.comfy.org/custom-nodes/js/javascript_sidebar_tabs), [server](https://docs.comfy.org/development/comfyui-server/comms_routes) and [frontend development](https://github.com/Comfy-Org/ComfyUI_frontend/blob/main/docs/extensions/development.md).

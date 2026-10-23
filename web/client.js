@@ -16,7 +16,7 @@ export async function request(path, body, method = 'GET') {
     if (!result.ok) {
         let data;
         try { data = await result.json(); } catch { throw new Error(`Server: ${result.status}. Restart ComfyUI to load Manga Maker Studio when no jobs are active.`); }
-        throw new Error(data.error || JSON.stringify(data));
+        throw Object.assign(new Error(data.error || JSON.stringify(data)), { status: result.status });
     }
     return result.json();
 }

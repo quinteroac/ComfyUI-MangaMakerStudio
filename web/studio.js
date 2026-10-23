@@ -7,8 +7,10 @@ import { newPage, normalizePage, PageEditor } from './editor.js';
 import { modelFields, globalModels, inheritModels, applyPreset, savedPreset } from './models.js';
 import { openDrawing } from './drawing.js';
 import { combo, segmented, slider, toggle, seed, resizer, summarize } from './controls.js';
+import { StoryStudio } from './story.js';
+import { assistantSettings } from './assistant.js';
 
-const spaces = { references: 'References', panels: 'Panels', refine: 'Refinement', design: 'Page layout', finish: 'Finishing' };
+const spaces = { story: 'Story', references: 'References', panels: 'Panels', refine: 'Refinement', design: 'Page layout', finish: 'Finishing' };
 const engines = { krea: 'Krea2', krea_edit: 'Krea2 Edit', qwen: 'Qwen Image 2.1', moss: 'moss', anima: 'anima' };
 const textTasks = { enhance: 'Enhance section', describe: 'Create reference prompt' };
 const clone = x => structuredClone(x);
@@ -67,7 +69,7 @@ export class Studio {
         this.project = project; localStorage.setItem('mm-project', id); this.renderHeader(); this.switch(this.active); this.jobs();
     }
     closeAssetMenu() { if (this.assetMenu?.matches(':popover-open')) this.assetMenu.hidePopover(); this.assetMenu = null; }
-    resetViews() { this.closeAssetMenu(); this.observers.forEach(o => o.disconnect()); this.observers = []; this.editor?.destroy(); this.editor = null; this.views.clear(); this.galleryRefresh.clear(); this.referenceRefresh.clear(); this.pendingRefresh.clear(); this.body.replaceChildren(); }
+    resetViews() { this.closeAssetMenu(); this.observers.forEach(o => o.disconnect()); this.observers = []; this.editor?.destroy(); this.editor = null; this.storyView?.destroy(); this.storyView = null; this.views.clear(); this.galleryRefresh.clear(); this.referenceRefresh.clear(); this.pendingRefresh.clear(); this.body.replaceChildren(); }
     state(space = this.active) { return this.project.workspace[space] ||= { engine: space === 'finish' ? 'qwen' : 'krea', selection: [], references: [], source: '', search: '', sort: 'newest', filter: 'all', page: 0 }; }
     config(space = this.active, engine = this.state(space).engine) {
         const scope = `${space}:${engine}`;
@@ -84,10 +86,11 @@ export class Studio {
         if (!view) {
             view = el('section', { class: `mm-workspace mm-${this.active}` }); this.views.set(this.active, view); this.body.append(view);
             if (this.active === 'design') this.design(view);
+            else if (this.active === 'story') this.storyView = new StoryStudio(this, view);
             else if (this.active === 'refine') this.refine(view);
             else if (this.active === 'finish') this.finish(view);
             else this.generateView(view, this.active);
-        }
+        } else if (this.active === 'story') this.storyView.render();
         view.hidden = false;
         if (this.active === 'design') this.editor?.fit(); this.jobs();
     }
@@ -99,10 +102,18 @@ export class Studio {
     flush() {
         clearTimeout(this.saveTimer);
         if (!this.project) return this.saving;
-        const id = this.project.id;
-        const patch = clone({ config: this.project.config, presets: this.project.presets, layouts: this.project.layouts, workspace: this.project.workspace });
-        this.saving = this.saving.catch(() => {}).then(() => request(`/projects/${id}`, patch, 'PUT')).then(() => { this.status.dataset.save = 'saved'; }).catch(error => { this.status.dataset.save = 'error'; this.fail(new Error(`Could not save: ${error.message}`)); throw error; });
+        const project = this.project;
+        const patch = clone({ config: project.config, presets: project.presets, layouts: project.layouts, workspace: project.workspace, story: project.story || {} });
+        this.saving = this.saving.catch(() => {}).then(() => request(`/projects/${project.id}`, { ...patch, revision: project.revision }, 'PUT')).then(saved => { project.revision = saved.revision; this.status.dataset.save = 'saved'; }).catch(error => {
+            if (error.status === 409 && this.project === project) return this.reload();
+            this.status.dataset.save = 'error'; this.fail(new Error(`Could not save: ${error.message}`)); throw error;
+        });
         return this.saving;
+    }
+    async reload() {
+        clearTimeout(this.saveTimer); this.resetViews();
+        this.project = await request(`/projects/${this.project.id}`); this.status.dataset.save = 'saved';
+        this.switch(this.active); this.jobs(); this.notify('The project was changed outside Studio and has been reloaded.');
     }
     async close() {
         try { await this.flush(); } catch { return; }
@@ -172,7 +183,8 @@ export class Studio {
                 if (!this.project) throw new Error('Open a project'); const imported = JSON.parse(await files[0].text());
                 this.confirm('Replace project settings and presets', async () => { for (const key of ['config', 'presets', 'layouts']) if (imported[key]) this.project[key] = imported[key]; await this.flush(); this.resetViews(); this.switch(this.active); });
             }))));
-        const sections = [['General', general], ['Text generator', textControls], ['Models', models], ['Import and export', transfer]].map(([title, content]) => el('section', { 'aria-label': title }, el('h3', { text: title }), content));
+        const assistantControls = el('div'); assistantSettings(assistantControls, value, error => this.fail(error)).catch(error => this.fail(error));
+        const sections = [['General', general], ['Text generator', textControls], ['Story assistant', assistantControls], ['Models', models], ['Import and export', transfer]].map(([title, content]) => el('section', { 'aria-label': title }, el('h3', { text: title }), content));
         const form = el('div', { class: 'mm-settings' }, el('nav', { class: 'mm-settings-nav', 'aria-label': 'Settings sections' },
             ...sections.map(section => button(section.getAttribute('aria-label'), () => section.scrollIntoView({ block: 'start', behavior: 'smooth' })))), el('div', { class: 'mm-settings-sections' }, ...sections));
         const dialog = this.modal('Global settings', form, button('Refresh models and nodes', () => this.action(async () => { this.defs = await api.getNodeDefs(); this.catalog = await request('/models'); renderText(); render(); })),
@@ -865,6 +877,11 @@ export class Studio {
         try {
             const data = await request(`/projects/${project.id}`);
             if (this.project !== project || this.abort.signal.aborted) return;
+            if (data.revision > project.revision) {
+                await this.saving.catch(() => {});
+                // A pending local edit is saved first; its revision conflict reloads the project.
+                if (this.project === project && data.revision > project.revision && this.status.dataset.save !== 'pending') { await (this.saving = this.saving.then(() => this.reload())); return; }
+            }
             const added = JSON.stringify(data.assets.map(a => [a.id,a.missing,a.deleted,a.name,a.metadata?.description_prompt])) !== JSON.stringify(project.assets.map(a => [a.id,a.missing,a.deleted,a.name,a.metadata?.description_prompt]));
             for (const job of data.jobs) {
                 const prior = project.jobs.find(j => j.id === job.id);

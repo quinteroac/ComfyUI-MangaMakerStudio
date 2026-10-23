@@ -10,6 +10,7 @@ Read this when inspecting a running server or configuring it through HTTP. All p
 | `GET /queue` | `queue_running` and `queue_pending`; both must be empty before an idle restart |
 | `GET /manga-maker/settings` | Current global configuration |
 | `GET /manga-maker/models` | Catalog `profiles`, `artifacts`, installed weight paths and download state; does not start downloads |
+| `GET /manga-maker/assistant` | Story assistant: `available` (llama-cpp-python installed), `defaults`, GGUF `models` with compatible `projectors`, scan `errors`, and whether a model is `loaded`. Settings live under `assistant` in `/manga-maker/settings` |
 | `POST /manga-maker/settings` | Persist settings; see replacement semantics below |
 
 If `/object_info` responds but Studio routes return 404, check plugin path, startup import errors and whether its Python code was loaded after installation. Do not POST to a missing route or create replacement server code. A stopped server cannot reveal its loaded schemas; inspect configuration/startup logs and defer live verification until it starts.

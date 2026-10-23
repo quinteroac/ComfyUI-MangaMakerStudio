@@ -36,6 +36,8 @@ The [documentation index](docs/README.md) links to guides by topic:
 | --- | --- |
 | [Agent-assisted setup](docs/agent-setup.md) | Use the included skill to install, configure or diagnose the plugin |
 | [Configuration](docs/configuration.md) | Models, downloads, overrides, presets and text/vision configuration |
+| [Story Studio](docs/story.md) | Logline, characters, plot, script and the local writing assistant |
+| [MCP server](docs/mcp.md) | Read projects and write the story from an MCP client |
 | [Using Studio](docs/usage.md) | References, panels, refinement and finishing |
 | [Drawing and manga conversion](docs/drawing.md) | Klecks, Sketch to Art, Art to Manga Panel and masks |
 | [Page layout](docs/page-layout.md) | Panels, framing, dialogue, fonts and export |

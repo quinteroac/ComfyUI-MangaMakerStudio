@@ -28,7 +28,10 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         folder.get_folder_paths = lambda category: [str(self.root / 'models' / category)]
         folder.get_filename_list = lambda category: [str(p.relative_to(self.root / 'models' / category)) for p in (self.root / 'models' / category).rglob('*.safetensors')]
         folder.get_full_path = lambda category, name: str(self.root / 'models' / category / name)
+        folder.models_dir = str(self.root / 'models'); folder.folder_names_and_paths = {}
         sys.modules['folder_paths'] = folder
+        comfy = types.ModuleType('comfy'); comfy.model_management = types.SimpleNamespace(unload_all_models=lambda: None, soft_empty_cache=lambda: None)
+        sys.modules['comfy'] = comfy; sys.modules['comfy.model_management'] = comfy.model_management
         self.queue = types.SimpleNamespace(history={}, pending=[], running=[])
         self.queue.get_current_queue = lambda: (self.queue.running, self.queue.pending)
         self.queue.get_history = lambda prompt_id: {prompt_id: self.queue.history[prompt_id]} if prompt_id in self.queue.history else {}
@@ -38,7 +41,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         directory = Path(__file__).parents[1]
         spec = importlib.util.spec_from_file_location('manga_route_test', directory / '__init__.py', submodule_search_locations=[str(directory)])
         package = importlib.util.module_from_spec(spec); sys.modules[spec.name] = package
-        for name in ('manga_route_test.routes', 'manga_route_test.storage', 'manga_route_test.models'): sys.modules.pop(name, None)
+        for name in ('manga_route_test.routes', 'manga_route_test.storage', 'manga_route_test.models', 'manga_route_test.assistant'): sys.modules.pop(name, None)
         spec.loader.exec_module(package)
         self.routes = sys.modules['manga_route_test.routes']; self.store = self.routes.store
         app.add_routes(server.PromptServer.instance.routes)
@@ -46,6 +49,14 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.close(); self.temp.cleanup()
+
+    async def test_stale_project_revision_is_a_conflict(self):
+        project = self.store.create('Revisions'); path = f"/manga-maker/projects/{project['id']}"
+        response = await self.client.put(path, json={'story': {'logline': {'title': 'A'}}, 'revision': 0})
+        self.assertEqual((await response.json())['revision'], 1)
+        response = await self.client.put(path, json={'story': {}, 'revision': 0})
+        self.assertEqual(response.status, 409)
+        self.assertEqual((await (await self.client.get(path)).json())['story'], {'logline': {'title': 'A'}})
 
     async def test_sketch_result_does_not_create_region_assets_and_cleans_temp_input(self):
         project = self.store.create('Sketch'); job_id = str(uuid.uuid4())

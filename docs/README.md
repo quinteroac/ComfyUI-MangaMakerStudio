@@ -9,6 +9,8 @@ These guides explain how the workspace is organized, which settings affect each 
 | [Installation and dependencies](installation.md) | Installing Studio, required custom nodes, optional features and weights |
 | [Agent-assisted setup](agent-setup.md) | The setup skill, example requests, agent access and verification |
 | [Configuration](configuration.md) | Global models, per-operation overrides, presets, text/vision settings and output size |
+| [Story Studio and assistant](story.md) | Logline, character cards, plot structure, script editor and the local GGUF assistant |
+| [MCP server](mcp.md) | Reading projects and writing the story from an MCP client |
 | [Using Studio](usage.md) | References, panels, image actions, refinement and finishing |
 | [Drawing and manga conversion](drawing.md) | Klecks, Sketch to Art, Art to Manga Panel, regions, masks and layered saving |
 | [Page layout](page-layout.md) | Composition, panel framing, dialogue, fonts and export |

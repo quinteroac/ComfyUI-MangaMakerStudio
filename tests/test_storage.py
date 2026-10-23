@@ -57,6 +57,32 @@ class StorageTests(unittest.TestCase):
         reopened.asset_path(self.project['id'], first).unlink()
         self.assertTrue(reopened.read(self.project['id'])['assets'][0]['missing'])
 
+    def test_story_and_assistant_conversations(self):
+        story = {'logline': {'title': 'Kitsune'}, 'characters': [{'id': 'a', 'name': 'Aiko'}]}
+        self.store.update(self.project['id'], {'story': story})
+        self.assertEqual(self.store.read(self.project['id'])['story'], story)
+        with self.assertRaises(ValueError):
+            self.store.update(self.project['id'], {'story': []})
+        self.assertEqual(self.store.chats(self.project['id']), {})
+        self.store.save_chats(self.project['id'], {'logline': [{'role': 'user', 'text': 'Hola'}]})
+        duplicate = self.store.duplicate(self.project['id'], 'Copia')
+        self.assertEqual(self.store.read(duplicate['id'])['story'], story)
+        self.assertEqual(self.store.chats(duplicate['id']), {})
+        self.store.configure({'assistant': {'model': 'story.gguf', 'keep_loaded': True}})
+        self.store.configure({'text_generator': {}})
+        self.assertEqual(self.store.settings()['assistant'], {'model': 'story.gguf', 'keep_loaded': True})
+
+    def test_revision_rejects_stale_edits(self):
+        project_id = self.project['id']
+        self.assertEqual(self.store.read(project_id)['revision'], 0)
+        self.assertEqual(self.store.update(project_id, {'story': {'logline': {'title': 'A'}}, 'revision': 0})['revision'], 1)
+        with self.assertRaises(module.RevisionConflict):
+            self.store.update(project_id, {'story': {'logline': {'title': 'Stale'}}, 'revision': 0})
+        self.assertEqual(self.store.read(project_id)['story'], {'logline': {'title': 'A'}})
+        self.store.import_image(project_id, 'panels', png(), 'Result')
+        self.assertEqual(self.store.update(project_id, {'name': 'Renamed'})['revision'], 1)
+        self.assertEqual(self.store.update(project_id, {'workspace': {}})['revision'], 2)
+
     def test_paths_and_symlinks(self):
         root = self.store.root()
         for path in ['../secret', '/etc/passwd', 'a/../../secret']:

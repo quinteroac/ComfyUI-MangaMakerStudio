@@ -15,6 +15,10 @@ KINDS = ('references', 'panels', 'pages')
 FONT_SIGNATURES = {'.ttf': (b'\x00\x01\x00\x00', b'true'), '.otf': (b'OTTO', b'\x00\x01\x00\x00'), '.woff': (b'wOFF',), '.woff2': (b'wOF2',)}
 
 
+class RevisionConflict(Exception):
+    pass
+
+
 def contained(root, relative):
     root = Path(root).resolve()
     path = Path(relative)
@@ -46,7 +50,7 @@ class ProjectStore:
     def settings(self):
         if self.settings_path.exists():
             return json.loads(self.settings_path.read_text('utf-8'))
-        return {'root': str(self.default_root), 'defaults': {}, 'models': {}, 'presets': {}, 'text_generator': {}}
+        return {'root': str(self.default_root), 'defaults': {}, 'models': {}, 'presets': {}, 'text_generator': {}, 'assistant': {}}
 
     def fonts(self):
         return sorted([json.loads(contained(self.font_directory, path.name).read_text('utf-8')) for path in self.font_directory.glob('*.json')], key=lambda font: font['name'].casefold())
@@ -80,7 +84,8 @@ class ProjectStore:
             value = {'root': str(root.resolve()), 'defaults': data.get('defaults', previous['defaults']),
                      'models': data.get('models', previous.get('models', {})),
                      'presets': data.get('presets', previous['presets']),
-                     'text_generator': data.get('text_generator', previous.get('text_generator', {}))}
+                     'text_generator': data.get('text_generator', previous.get('text_generator', {})),
+                     'assistant': data.get('assistant', previous.get('assistant', {}))}
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
             atomic_json(self.settings_path, value)
             return value
@@ -103,6 +108,7 @@ class ProjectStore:
                 raise ValueError('The identifier does not match the project folder')
             for asset in data['assets']:
                 asset['missing'] = not self.asset_path(project_id, asset).is_file()
+            data.setdefault('revision', 0)
             return data
 
     def write(self, data):
@@ -132,19 +138,24 @@ class ProjectStore:
             for kind in KINDS:
                 contained(directory, kind).mkdir()
             data = {'id': project_id, 'name': str(name).strip() or 'New manga', 'updated': time.time(),
-                    'assets': [], 'config': {}, 'presets': {}, 'layouts': {}, 'workspace': {}, 'jobs': []}
+                    'assets': [], 'config': {}, 'presets': {}, 'layouts': {}, 'workspace': {}, 'story': {}, 'jobs': [], 'revision': 0}
             return self.write(data)
 
     def update(self, project_id, patch):
         with self.lock:
             data = self.read(project_id)
-            for key in ('name', 'config', 'presets', 'layouts', 'workspace'):
+            # Clients send the revision they edited; a stale one would overwrite another client's changes.
+            if 'revision' in patch and patch['revision'] != data['revision']:
+                raise RevisionConflict('The project was changed by another client. Reload it and try again.')
+            for key in ('name', 'config', 'presets', 'layouts', 'workspace', 'story'):
                 if key in patch:
                     if key != 'name' and not isinstance(patch[key], dict):
                         raise ValueError(f'{key} must be a JSON object')
                     if key == 'name' and not isinstance(patch[key], str):
                         raise ValueError('Name must be text')
                     data[key] = patch[key]
+            if patch.keys() & {'config', 'presets', 'layouts', 'workspace', 'story'}:
+                data['revision'] += 1
             return self.write(data)
 
     def duplicate(self, project_id, name):
@@ -162,6 +173,15 @@ class ProjectStore:
             source = copy.deepcopy(source)
             source.update(id=dest['id'], name=name, jobs=[])
             return self.write(source)
+
+    def chats(self, project_id):
+        with self.lock:
+            path = contained(self.directory(project_id), 'story-chat.json')
+            return json.loads(path.read_text('utf-8')) if path.exists() else {}
+
+    def save_chats(self, project_id, chats):
+        with self.lock:
+            atomic_json(contained(self.directory(project_id), 'story-chat.json'), chats)
 
     def asset_path(self, project_id, asset):
         path = Path(asset['path'])

@@ -6,11 +6,33 @@ import json
 from pathlib import Path
 import sys
 import signal
+import struct
 import tempfile
 import types
 
 from aiohttp import web
 from PIL import Image, ImageDraw
+
+# Answers like llama.cpp would: schema requests get JSON filled from the schema, chat gets an echo.
+FAKE_ASSISTANT = """
+import json, sys
+def sample(schema, key='value'):
+    if schema['type'] == 'object': return {k: sample(v, k) for k, v in schema['properties'].items()}
+    if schema['type'] == 'array': return [sample(schema['items'], key)]
+    return schema['enum'][0] if 'enum' in schema else f'Sample {key}'
+print(json.dumps({'type': 'loaded'}), flush=True)
+while line := sys.stdin.readline():
+    request = json.loads(line); content = request['messages'][-1]['content']
+    text = json.dumps(sample(request['schema'])) if request['schema'] else 'Assistant reply: ' + (content if isinstance(content, str) else content[0]['text'])
+    for part in (text[:len(text) // 2], text[len(text) // 2:]): print(json.dumps({'type': 'delta', 'text': part}), flush=True)
+    print(json.dumps({'type': 'done'}), flush=True)
+"""
+
+
+def gguf(path, values):
+    encode = lambda value: struct.pack('<Q', len(value.encode())) + value.encode()
+    body = b''.join(encode(k) + (struct.pack('<I?', 7, v) if isinstance(v, bool) else struct.pack('<II', 4, v) if isinstance(v, int) else struct.pack('<I', 8) + encode(v)) for k, v in values.items())
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'GGUF' + struct.pack('<IQQ', 3, 0, len(values)) + body)
 
 
 async def main():
@@ -31,7 +53,12 @@ async def main():
             spec = definitions[node]['input']['required'][field]; names = spec[0] if isinstance(spec[0], list) else spec[1]['options']
             for name in names:
                 target = root / 'models' / category / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(b'fixture')
+        folder.models_dir = str(root / 'models'); folder.folder_names_and_paths = {}
+        gguf(root / 'models/LLM/story-writer.gguf', {'general.architecture': 'gemma4', 'general.name': 'Story Writer', 'gemma4.context_length': 8192, 'gemma4.embedding_length': 64, 'tokenizer.chat_template': 'x'})
+        gguf(root / 'models/LLM/mmproj.gguf', {'general.architecture': 'clip', 'clip.has_vision_encoder': True, 'clip.projector_type': 'gemma4uv', 'clip.vision.projection_dim': 64})
         sys.modules['folder_paths'] = folder
+        comfy = types.ModuleType('comfy'); comfy.model_management = types.SimpleNamespace(unload_all_models=lambda: None, soft_empty_cache=lambda: None)
+        sys.modules['comfy'] = comfy; sys.modules['comfy.model_management'] = comfy.model_management
         server = types.ModuleType('server')
         class Queue:
             history = {}
@@ -39,6 +66,7 @@ async def main():
             pending = []
             def get_current_queue(self): return self.running, self.pending
             def get_history(self, prompt_id=None): return {prompt_id: self.history[prompt_id]} if prompt_id in self.history else {}
+            def get_tasks_remaining(self): return len(self.running) + len(self.pending)
         instance = types.SimpleNamespace(routes=web.RouteTableDef(), app=web.Application(client_max_size=64 * 1024 ** 2), prompt_queue=Queue(), send_sync=lambda *a: None)
         server.PromptServer = types.SimpleNamespace(instance=instance)
         sys.modules['server'] = server
@@ -46,6 +74,8 @@ async def main():
         spec = importlib.util.spec_from_file_location('manga_test_plugin', package_path / '__init__.py', submodule_search_locations=[str(package_path)])
         package = importlib.util.module_from_spec(spec); sys.modules[spec.name] = package; spec.loader.exec_module(package)
         routes = sys.modules['manga_test_plugin.routes']
+        assistant = sys.modules['manga_test_plugin.assistant']
+        assistant.WORKER = root / 'assistant_worker.py'; assistant.WORKER.write_text(FAKE_ASSISTANT)
         def fixture_download(artifact, state):
             target = root / 'models' / artifact['directory'] / artifact['filename']
             target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(b'fixture')

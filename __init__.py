@@ -1,4 +1,4 @@
-from . import routes
+from . import routes, assistant
 
 WEB_DIRECTORY = './web'
 NODE_CLASS_MAPPINGS = {}
